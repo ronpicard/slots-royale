@@ -226,12 +226,12 @@ const FACE_TOWARD_Z = 0
 
 const FIGURE_SPECS: FigureSpec[] = [
   { x: -28, z: 4, isCroupier: true, facing: 0 },
-  { x: -46, z: 26 },
-  { x: 48, z: 28 },
+  { x: -60, z: 30 },
+  { x: 62, z: 32 },
   { x: -46, z: 10 },
   { x: 48, z: 12 },
-  { x: -32, z: -14 },
-  { x: 34, z: -16 },
+  { x: -48, z: -16 },
+  { x: 50, z: -18 },
 ]
 
 const CANONICAL_HEIGHT = 66

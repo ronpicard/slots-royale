@@ -81,7 +81,7 @@ import type { Cell } from '../game/types.ts'
 import { REEL_COUNT, ROW_COUNT } from '../game/types.ts'
 import { REEL_STRIPS } from '../game/reels.ts'
 import { CELL_HEIGHT, CELL_WIDTH, REEL_AXIS_Z, REEL_WINDOW_Y, cellPosition } from './layout.ts'
-import { makeReelStripTexture } from './symbolTextures.ts'
+import { makeReelStripBlurTexture, makeReelStripTexture } from './symbolTextures.ts'
 
 export interface ReelView {
   group: THREE.Group
@@ -118,6 +118,13 @@ const DIM_EMISSIVE_INTENSITY = 0.08
 const LIT_EMISSIVE_INTENSITY = 0.25
 const HIGHLIGHT_COLOR = '#f3d27a'
 const HIGHLIGHT_TEXTURE_SIZE = 128
+/** How much smaller the blurred-face cylinder's radius is than the sharp face's. */
+const BLUR_MESH_RADIUS_OFFSET = 0.03
+/** Blur fades in starting at this fraction of full speed, and is fully opaque by +0.5 more. */
+const BLUR_FADE_START = 0.35
+const BLUR_FADE_RANGE = 0.5
+/** How long the post-stop backlight flash takes to decay back to the base emissive intensity. */
+const FLASH_DECAY_TIME = 0.35
 
 /** How many strip cells are wrapped around the reel's circumference at once. See the header. */
 export const REEL_VISIBLE_CELLS = 12
@@ -135,6 +142,10 @@ const ALIGN_QUAT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 
 
 function mod(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value))
 }
 
 /** The strip index that should sit at wrapped position 0 so `stop + 1` lands on `WINDOW_MIDDLE`. */
@@ -268,8 +279,14 @@ interface ReelInstance {
   material: THREE.MeshStandardMaterial
   texture: THREE.CanvasTexture
   geometry: THREE.CylinderGeometry
+  /** Second, always-blurred face shown through the sharp face while the reel is at speed. */
+  blurMaterial: THREE.MeshStandardMaterial
+  blurTexture: THREE.CanvasTexture
+  blurGeometry: THREE.CylinderGeometry
   stripLength: number
   state: ReelState
+  /** 1 right after the reel stops, decaying to 0: drives the backlight flash. */
+  flash: number
 }
 
 interface HighlightCell {
@@ -282,11 +299,26 @@ function buildReel(reel: number, capMaterial: THREE.Material): ReelInstance {
   const texture = makeReelStripTexture(strip)
   texture.repeat.set(1, REEL_VISIBLE_CELLS / strip.length)
   texture.offset.y = computeOffsetY(0, strip.length)
+  const blurTexture = makeReelStripBlurTexture(strip)
+  blurTexture.repeat.set(1, REEL_VISIBLE_CELLS / strip.length)
+  blurTexture.offset.y = computeOffsetY(0, strip.length)
   const height = CELL_WIDTH - 0.3
   const geometry = new THREE.CylinderGeometry(REEL_VISIBLE_RADIUS, REEL_VISIBLE_RADIUS, height, RADIAL_SEGMENTS, 1, true)
+  const blurRadius = REEL_VISIBLE_RADIUS - BLUR_MESH_RADIUS_OFFSET
+  const blurGeometry = new THREE.CylinderGeometry(blurRadius, blurRadius, height, RADIAL_SEGMENTS, 1, true)
   const material = new THREE.MeshStandardMaterial({
     map: texture,
     emissiveMap: texture,
+    emissive: 0xffffff,
+    emissiveIntensity: LIT_EMISSIVE_INTENSITY,
+    roughness: 0.45,
+    transparent: true,
+    // The blurred mesh sits just behind (smaller radius) and writes depth for both.
+    depthWrite: false,
+  })
+  const blurMaterial = new THREE.MeshStandardMaterial({
+    map: blurTexture,
+    emissiveMap: blurTexture,
     emissive: 0xffffff,
     emissiveIntensity: LIT_EMISSIVE_INTENSITY,
     roughness: 0.45,
@@ -294,6 +326,10 @@ function buildReel(reel: number, capMaterial: THREE.Material): ReelInstance {
   const mesh = new THREE.Mesh(geometry, material)
   mesh.castShadow = true
   mesh.receiveShadow = true
+  mesh.renderOrder = 1
+  const blurMesh = new THREE.Mesh(blurGeometry, blurMaterial)
+  blurMesh.castShadow = true
+  blurMesh.receiveShadow = true
 
   const capGeometry = new THREE.CircleGeometry(REEL_VISIBLE_RADIUS, 32)
   const topCapGeometry = capGeometry.clone()
@@ -310,9 +346,20 @@ function buildReel(reel: number, capMaterial: THREE.Material): ReelInstance {
 
   const group = new THREE.Group()
   group.position.set((reel - 2) * CELL_WIDTH, REEL_WINDOW_Y, REEL_AXIS_Z)
-  group.add(mesh, topCap, bottomCap)
+  group.add(mesh, blurMesh, topCap, bottomCap)
 
-  return { group, material, texture, geometry, stripLength: strip.length, state: initialReelState() }
+  return {
+    group,
+    material,
+    texture,
+    geometry,
+    blurMaterial,
+    blurTexture,
+    blurGeometry,
+    stripLength: strip.length,
+    state: initialReelState(),
+    flash: 0,
+  }
 }
 
 export function createReelView(): ReelView {
@@ -351,9 +398,17 @@ export function createReelView(): ReelView {
   }
 
   let currentFullSpeed = 0
+  /** Tracked so `update`/`stopNow` can recompute emissive intensity without re-deriving it from setDim. */
+  let dimmed = false
+
+  function baseEmissiveIntensity(): number {
+    return dimmed ? DIM_EMISSIVE_INTENSITY : LIT_EMISSIVE_INTENSITY
+  }
 
   function applyOffset(instance: ReelInstance, k: number): void {
-    instance.texture.offset.y = computeOffsetY(k, instance.stripLength)
+    const offsetY = computeOffsetY(k, instance.stripLength)
+    instance.texture.offset.y = offsetY
+    instance.blurTexture.offset.y = offsetY
     instance.state.appliedOffsetK = k
     instance.state.offsetApplied = true
   }
@@ -404,6 +459,7 @@ export function createReelView(): ReelView {
       instance.state.omega = 0
       instance.state.phase = 'stopped'
       instance.group.quaternion.setFromAxisAngle(X_AXIS, instance.state.phi).multiply(ALIGN_QUAT)
+      instance.material.opacity = 1
     }
   }
 
@@ -420,16 +476,22 @@ export function createReelView(): ReelView {
   }
 
   function setDim(dim: boolean): void {
+    dimmed = dim
+    const base = baseEmissiveIntensity()
     for (const instance of reels) {
       instance.material.color.setScalar(dim ? DIM_COLOR_SCALE : 1)
-      instance.material.emissiveIntensity = dim ? DIM_EMISSIVE_INTENSITY : LIT_EMISSIVE_INTENSITY
+      instance.blurMaterial.color.setScalar(dim ? DIM_COLOR_SCALE : 1)
+      instance.material.emissiveIntensity = base + 0.6 * instance.flash
+      instance.blurMaterial.emissiveIntensity = base + 0.6 * instance.flash
     }
   }
 
   function update(dt: number, time: number): { level: number; pitch: number } {
     let movingCount = 0
     let speedSum = 0
+    const base = baseEmissiveIntensity()
     for (const instance of reels) {
+      const wasStopped = instance.state.phase === 'stopped'
       advanceReelState(instance.state, dt)
       if (!instance.state.offsetApplied && instance.state.phase !== 'accelerating') {
         applyOffset(instance, instance.state.pendingOffsetK)
@@ -439,6 +501,18 @@ export function createReelView(): ReelView {
         movingCount += 1
         speedSum += instance.state.omega
       }
+      if (instance.state.phase === 'stopped' && !wasStopped) instance.flash = 1
+      instance.flash = Math.max(0, instance.flash - dt / FLASH_DECAY_TIME)
+
+      const blurAmount =
+        instance.state.phase === 'stopped'
+          ? 0
+          : clamp01((Math.abs(instance.state.omega) / instance.state.fullSpeed - BLUR_FADE_START) / BLUR_FADE_RANGE)
+      instance.material.opacity = instance.state.phase === 'stopped' ? 1 : 1 - blurAmount
+
+      const emissiveIntensity = base + 0.6 * instance.flash
+      instance.material.emissiveIntensity = emissiveIntensity
+      instance.blurMaterial.emissiveIntensity = emissiveIntensity
     }
     for (const highlight of highlightCells) {
       if (!highlight.mesh.visible) continue
@@ -461,8 +535,13 @@ export function createReelView(): ReelView {
       instance.geometry.dispose()
       instance.material.dispose()
       instance.texture.dispose()
+      instance.blurGeometry.dispose()
+      instance.blurMaterial.dispose()
+      instance.blurTexture.dispose()
       for (const child of instance.group.children) {
-        if (child instanceof THREE.Mesh && child.geometry !== instance.geometry) child.geometry.dispose()
+        if (child instanceof THREE.Mesh && child.geometry !== instance.geometry && child.geometry !== instance.blurGeometry) {
+          child.geometry.dispose()
+        }
       }
     }
     capMaterial.dispose()

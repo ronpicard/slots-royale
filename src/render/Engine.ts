@@ -98,6 +98,7 @@ const LEVER_PULL_SECONDS = 0.6
 const GLOW_CYCLE_SECONDS = 0.7
 const AUTO_CONTINUE_SECONDS = 0.8
 const AUTO_CONTINUE_AFTER_WIN_SECONDS = 1.2
+const GLASS_SWEEP_SECONDS = 1.1
 const ATTRACT_ROUND_GAP_SECONDS = 2.5
 const HUD_THROTTLE_SECONDS = 1 / 20
 const TAP_MAX_MOVE_PX = 8
@@ -169,11 +170,13 @@ const CABINET_LOOK = new THREE.Vector3(0, 40, 0)
 const FLOOR_EYE = new THREE.Vector3(-50, 56, CABINET_MAX_Z + 40)
 const FLOOR_LOOK = new THREE.Vector3(0, 40, 0)
 
+/** The reels view frames the window plus its gold bezel. */
+const REELS_FIT_MARGIN = 1.2
 const REELS_FIT_POINTS: readonly THREE.Vector3[] = [
-  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2, REEL_WINDOW_Z),
-  new THREE.Vector3(REEL_WINDOW_WIDTH / 2, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2, REEL_WINDOW_Z),
-  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2, REEL_WINDOW_Z),
-  new THREE.Vector3(REEL_WINDOW_WIDTH / 2, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2, REEL_WINDOW_Z),
+  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Z),
+  new THREE.Vector3(REEL_WINDOW_WIDTH / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Z),
+  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Z),
+  new THREE.Vector3(REEL_WINDOW_WIDTH / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Z),
 ]
 const CABINET_FIT_POINTS: readonly THREE.Vector3[] = [
   new THREE.Vector3(CABINET_MIN_X - CABINET_FIT_MARGIN, 0, CABINET_CENTER_Z),
@@ -393,16 +396,9 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
 
   function resolveView(): FitView {
     if (cameraView !== 'auto') return cameraView
-    // Portrait screens cannot read the reels from the cabinet view, so stay close while playing.
-    if (aspect < 1 && mode === 'play') return 'reels'
-    if (session.phase === 'spinning') return 'reels'
-    if (session.phase === 'result') {
-      const tier = session.lastOutcome?.tier
-      const bigPlus = tier === 'big' || tier === 'mega' || tier === 'jackpot'
-      if (bigPlus) return 'cabinet'
-      return resultElapsed < 1.2 ? 'reels' : 'cabinet'
-    }
-    return 'cabinet'
+    // While playing, the camera stays parked close on the reel window: no zooming per spin.
+    if (mode === 'play') return 'reels'
+    return session.phase === 'spinning' ? 'reels' : 'cabinet'
   }
 
   function updateCamera(dt: number): void {
@@ -431,7 +427,6 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
   let paused = false
   let cameraView: CameraView = 'auto'
 
-  let resultElapsed = 0
   let simTime = 0
   let displayedWin = 0
 
@@ -647,6 +642,7 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
       totalWin: outcome.totalWin,
     }
     reels.setDim(true)
+    machine.sweepGlass(GLASS_SWEEP_SECONDS * qs)
     machine.showWinLamp(bigPlus || (reaction !== null && reaction.kind === 'cheer'))
     machine.setTopperMode(outcome.tier === 'jackpot' ? 'jackpot' : awardedFreeSpins ? 'free' : 'win')
     if (reaction) {
@@ -730,7 +726,6 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
     presentation = null
     displayedWin = 0
     pendingAction = null
-    resultElapsed = 0
     spinStopTimes = null
     spinElapsed = 0
     nextReelStopIndex = 0
@@ -949,7 +944,6 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
           fn()
         }
       }
-      if (session.phase === 'result') resultElapsed += simDt
       if (presentation) tickPresentation(simDt)
     }
 

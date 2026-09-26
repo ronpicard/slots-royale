@@ -88,6 +88,8 @@ export interface MachineView {
   setPaylineGlow(active: readonly PaylineGlow[]): void
   setButtonLit(name: 'spin' | 'bet' | 'max', lit: boolean): void
   showWinLamp(on: boolean): void
+  /** Starts a highlight sweep across the reel window's glass, travelling left to right over `seconds`. */
+  sweepGlass(seconds: number): void
   update(dt: number, time: number): void
   dispose(): void
 }
@@ -217,6 +219,66 @@ function paintPaylineTab(ctx: CanvasRenderingContext2D, size: number, n: number)
   ctx.fillText(String(n), size / 2, size * 0.55)
 }
 
+function paintGlassGlare(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.clearRect(0, 0, size, size)
+  const bandAngle = (35 * Math.PI) / 180
+  const normalAngle = bandAngle + Math.PI / 2
+  const nx = Math.cos(normalAngle)
+  const ny = Math.sin(normalAngle)
+  const cx = size / 2
+  const cy = size / 2
+  function paintBand(offset: number, halfSpan: number, peakAlpha: number): void {
+    const ox = cx + nx * offset
+    const oy = cy + ny * offset
+    const gradient = ctx.createLinearGradient(ox - nx * halfSpan, oy - ny * halfSpan, ox + nx * halfSpan, oy + ny * halfSpan)
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0)')
+    gradient.addColorStop(0.5, `rgba(255, 255, 255, ${peakAlpha})`)
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, size, size)
+  }
+  paintBand(0, size * 0.11, 0.28)
+  paintBand(size * 0.2, size * 0.06, 0.12)
+  const radial = ctx.createRadialGradient(size * 0.15, size * 0.15, 0, size * 0.15, size * 0.15, size * 0.45)
+  radial.addColorStop(0, 'rgba(255, 255, 255, 0.18)')
+  radial.addColorStop(1, 'rgba(255, 255, 255, 0)')
+  ctx.fillStyle = radial
+  ctx.fillRect(0, 0, size, size)
+}
+
+function paintGlassVignette(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.clearRect(0, 0, size, size)
+  const center = size / 2
+  const maxRadius = size * Math.SQRT1_2
+  const radial = ctx.createRadialGradient(center, center, maxRadius * 0.55, center, center, maxRadius)
+  radial.addColorStop(0, 'rgba(0, 0, 0, 0)')
+  radial.addColorStop(1, 'rgba(0, 0, 0, 0.55)')
+  ctx.fillStyle = radial
+  ctx.fillRect(0, 0, size, size)
+  const edgeDepth = size * 0.08
+  function paintEdge(gx0: number, gy0: number, gx1: number, gy1: number, rx: number, ry: number, rw: number, rh: number): void {
+    const gradient = ctx.createLinearGradient(gx0, gy0, gx1, gy1)
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.5)')
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+    ctx.fillStyle = gradient
+    ctx.fillRect(rx, ry, rw, rh)
+  }
+  paintEdge(0, 0, 0, edgeDepth, 0, 0, size, edgeDepth)
+  paintEdge(0, size, 0, size - edgeDepth, 0, size - edgeDepth, size, edgeDepth)
+  paintEdge(0, 0, edgeDepth, 0, 0, 0, edgeDepth, size)
+  paintEdge(size, 0, size - edgeDepth, 0, size - edgeDepth, 0, edgeDepth, size)
+}
+
+function paintSweepBand(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  ctx.clearRect(0, 0, width, height)
+  const gradient = ctx.createLinearGradient(0, 0, width, 0)
+  gradient.addColorStop(0, 'rgba(255, 240, 200, 0)')
+  gradient.addColorStop(0.5, 'rgba(255, 240, 200, 0.6)')
+  gradient.addColorStop(1, 'rgba(255, 240, 200, 0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, width, height)
+}
+
 // -------------------------------------------------------------------------------------------
 
 export function createMachineView(): MachineView {
@@ -248,7 +310,8 @@ export function createMachineView(): MachineView {
   const maskMaterial = own(new THREE.MeshStandardMaterial({ color: MASK_BLACK, roughness: 0.85, metalness: 0.05 }))
   const glassMaterial = own(
     new THREE.MeshPhysicalMaterial({
-      color: '#eef6ff', roughness: 0.05, metalness: 0, transmission: 0.9, thickness: 0.2, transparent: true, ior: 1.5,
+      color: '#f2f8ff', roughness: 0.03, metalness: 0, transmission: 0.92, thickness: 0.3, ior: 1.5,
+      clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.4, transparent: true, depthWrite: false,
     }),
   )
   const chromeMaterial = own(new THREE.MeshStandardMaterial({ color: CHROME, metalness: 1, roughness: 0.15 }))
@@ -291,13 +354,71 @@ export function createMachineView(): MachineView {
   addBox(BEZEL_WIDTH, REEL_WINDOW_HEIGHT + BEZEL_WIDTH * 2, BEZEL_DEPTH, WIN_LEFT - BEZEL_WIDTH / 2, REEL_WINDOW_Y, bezelZ, goldMaterial)
   addBox(BEZEL_WIDTH, REEL_WINDOW_HEIGHT + BEZEL_WIDTH * 2, BEZEL_DEPTH, WIN_RIGHT + BEZEL_WIDTH / 2, REEL_WINDOW_Y, bezelZ, goldMaterial)
 
+  // --- Edge vignette, just behind the glass (in front of the reels): makes the reels read as
+  // recessed behind the pane rather than sitting flush with it. ----------------------------
+  {
+    const geometry = ownGeometry(new THREE.PlaneGeometry(REEL_WINDOW_WIDTH, REEL_WINDOW_HEIGHT))
+    const texture = own(finishTexture((() => {
+      const { canvas, ctx } = makeCanvas(256, 256)
+      paintGlassVignette(ctx, 256)
+      return canvas
+    })()))
+    const material = own(new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, opacity: 1 }))
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(0, REEL_WINDOW_Y, REEL_WINDOW_Z + 0.6)
+    mesh.renderOrder = 1
+    group.add(mesh)
+  }
+
   // --- Glass over the window --------------------------------------------------------------
   {
     const geometry = ownGeometry(new THREE.PlaneGeometry(REEL_WINDOW_WIDTH, REEL_WINDOW_HEIGHT))
     const mesh = new THREE.Mesh(geometry, glassMaterial)
-    mesh.position.set(0, REEL_WINDOW_Y, CABINET_MAX_Z + 0.05)
+    mesh.position.set(0, REEL_WINDOW_Y, CABINET_MAX_Z + 0.15)
+    mesh.renderOrder = 2
     group.add(mesh)
   }
+
+  // --- Glare streak on the glass: ceiling lights reflecting in the pane -------------------
+  {
+    const geometry = ownGeometry(new THREE.PlaneGeometry(REEL_WINDOW_WIDTH, REEL_WINDOW_HEIGHT))
+    const texture = own(finishTexture((() => {
+      const { canvas, ctx } = makeCanvas(512, 512)
+      paintGlassGlare(ctx, 512)
+      return canvas
+    })()))
+    const material = own(
+      new THREE.MeshBasicMaterial({
+        map: texture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.16,
+      }),
+    )
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(0, REEL_WINDOW_Y, CABINET_MAX_Z + 0.2)
+    mesh.renderOrder = 3
+    group.add(mesh)
+  }
+
+  // --- Win sweep: a highlight band that travels across the glass on demand (see `sweepGlass`
+  // below); kept narrower than the window so it never pokes past the bezel. ----------------
+  const sweepWidth = REEL_WINDOW_WIDTH * 0.3
+  const sweepStartX = WIN_LEFT - sweepWidth / 2
+  const sweepEndX = WIN_RIGHT + sweepWidth / 2
+  const sweepGeometry = ownGeometry(new THREE.PlaneGeometry(sweepWidth, REEL_WINDOW_HEIGHT))
+  const sweepTexture = own(finishTexture((() => {
+    const { canvas, ctx } = makeCanvas(256, 64)
+    paintSweepBand(ctx, 256, 64)
+    return canvas
+  })()))
+  const sweepMaterial = own(
+    new THREE.MeshBasicMaterial({
+      map: sweepTexture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0,
+    }),
+  )
+  const sweepMesh = new THREE.Mesh(sweepGeometry, sweepMaterial)
+  sweepMesh.position.set(sweepStartX, REEL_WINDOW_Y, CABINET_MAX_Z + 0.25)
+  sweepMesh.renderOrder = 4
+  sweepMesh.visible = false
+  group.add(sweepMesh)
 
   // --- Interior mask grille just behind the glass: divides the window into the 5x3 cell grid,
   // masking the gaps between reel cylinders and above/below the three rows. -----------------
@@ -315,8 +436,12 @@ export function createMachineView(): MachineView {
   const chordHalf = REEL_VISIBLE_RADIUS * Math.sin((1.5 * 2 * Math.PI) / REEL_VISIBLE_CELLS)
   const sliver = REEL_WINDOW_HEIGHT / 2 - chordHalf
   if (sliver > 0) {
-    addBox(REEL_WINDOW_WIDTH, sliver, 0.3, 0, WIN_TOP - sliver / 2, maskZ, maskMaterial, { shadow: false })
-    addBox(REEL_WINDOW_WIDTH, sliver, 0.3, 0, WIN_BOTTOM + sliver / 2, maskZ, maskMaterial, { shadow: false })
+    // Deep enough (reaching back to the reel surface) that a camera above or below the window
+    // cannot see past the mask's inner edge onto the curve of the cylinder.
+    const sliverDepth = 3
+    const sliverZ = maskZ + 0.15 - sliverDepth / 2
+    addBox(REEL_WINDOW_WIDTH, sliver, sliverDepth, 0, WIN_TOP - sliver / 2, sliverZ, maskMaterial, { shadow: false })
+    addBox(REEL_WINDOW_WIDTH, sliver, sliverDepth, 0, WIN_BOTTOM + sliver / 2, sliverZ, maskMaterial, { shadow: false })
   }
 
   // --- Payline number plaques, 1-10 down the left pillar, 11-20 down the right ------------
@@ -606,6 +731,9 @@ export function createMachineView(): MachineView {
   let leverDuration = 0
   let leverActive = false
   let winLampOn = false
+  let sweepActive = false
+  let sweepElapsed = 0
+  let sweepDuration = 0
   const scratchColor = new THREE.Color()
 
   function setTopperMode(mode: TopperMode): void {
@@ -626,6 +754,13 @@ export function createMachineView(): MachineView {
 
   function showWinLamp(on: boolean): void {
     winLampOn = on
+  }
+
+  function sweepGlass(seconds: number): void {
+    sweepDuration = Math.max(0.05, seconds)
+    sweepElapsed = 0
+    sweepActive = true
+    sweepMesh.visible = true
   }
 
   function topperChaseSpeed(mode: TopperMode): number {
@@ -688,6 +823,19 @@ export function createMachineView(): MachineView {
     activeGlows.forEach((glow, i) => {
       glow.material.emissiveIntensity = 1.3 + 0.5 * Math.sin(time * 6 + i)
     })
+
+    // Win sweep: a highlight band travels across the glass once, then hides.
+    if (sweepActive) {
+      sweepElapsed += dt
+      const sweepT = clamp01(sweepElapsed / sweepDuration)
+      const eased = easeOutCubic(sweepT)
+      sweepMesh.position.x = sweepStartX + (sweepEndX - sweepStartX) * eased
+      sweepMaterial.opacity = 0.7 * Math.sin(Math.PI * sweepT)
+      if (sweepT >= 1) {
+        sweepActive = false
+        sweepMesh.visible = false
+      }
+    }
   }
 
   function dispose(): void {
@@ -696,5 +844,5 @@ export function createMachineView(): MachineView {
     disposables.length = 0
   }
 
-  return { group, setTopperMode, pullLever, setPaylineGlow, setButtonLit, showWinLamp, update, dispose }
+  return { group, setTopperMode, pullLever, setPaylineGlow, setButtonLit, showWinLamp, sweepGlass, update, dispose }
 }

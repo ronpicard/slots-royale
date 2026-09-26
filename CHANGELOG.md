@@ -2,6 +2,14 @@
 
 All notable changes to Slots Royale are documented in this file, following the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [1.1.0] - 2026-09-25
+
+### Changed
+
+- The default camera now stays parked close on the reel window from spin to spin, instead of pulling back to the whole cabinet between spins and on big wins.
+- The reel window reads as real glass: a clearcoated pane that reflects the room, a glare streak from the ceiling lights, a shadowed recess around the reels, and a highlight that sweeps across the pane when a win pays.
+- The reels blur into a streak while they are at speed and each one flashes its backlight as it stops.
+
 ## [1.0.0] - 2026-09-25
 
 ### Added

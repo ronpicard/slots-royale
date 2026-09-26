@@ -486,12 +486,12 @@ export function disposeSymbolTextures(): void {
 }
 
 /**
- * A tall strip texture (256 wide, `cellHeight * strip.length` high, capped so a 34-symbol strip
- * stays under the 8192 canvas-height limit) with strip index `i` drawn at canvas row
- * `i * cellHeight`, index 0 at the top. The caller (`reelView.ts`) owns and disposes the result;
- * it is not cached, since every reel's strip differs.
+ * Draws strip index `i` at canvas row `i * cellHeight`, index 0 at the top, into a fresh canvas
+ * sized `256 x (cellHeight * strip.length)` (capped so a 34-symbol strip stays under the 8192
+ * canvas-height limit). Shared by `makeReelStripTexture` and `makeReelStripBlurTexture` so the
+ * symbol painting itself lives in one place.
  */
-export function makeReelStripTexture(strip: readonly SymbolId[]): THREE.CanvasTexture {
+function drawStripCanvas(strip: readonly SymbolId[]): { canvas: HTMLCanvasElement; cellHeight: number; width: number; height: number } {
   const cellHeight = strip.length > MAX_STRIP_FOR_FULL_CELL ? SHORT_CELL_HEIGHT : TALL_CELL_HEIGHT
   const width = SYMBOL_CANVAS_SIZE
   const height = cellHeight * strip.length
@@ -503,7 +503,11 @@ export function makeReelStripTexture(strip: readonly SymbolId[]): THREE.CanvasTe
   for (let i = 0; i < strip.length; i++) {
     ctx.drawImage(getSymbolCanvas(strip[i]), 0, i * cellHeight, width, cellHeight)
   }
-  const texture = new THREE.CanvasTexture(canvas)
+  return { canvas, cellHeight, width, height }
+}
+
+/** Texture settings shared by the sharp and motion-blurred strip textures. */
+function configureStripTexture(texture: THREE.CanvasTexture): void {
   texture.colorSpace = THREE.SRGBColorSpace
   // Swap the geometry's circumference/length axes onto the canvas's height/width axes: see
   // `reelView.ts`'s header comment for the full derivation. `wrapT` is the axis this rotation
@@ -514,5 +518,56 @@ export function makeReelStripTexture(strip: readonly SymbolId[]): THREE.CanvasTe
   texture.wrapT = THREE.RepeatWrapping
   texture.anisotropy = 8
   texture.needsUpdate = true
+}
+
+/**
+ * A tall strip texture (256 wide, `cellHeight * strip.length` high, capped so a 34-symbol strip
+ * stays under the 8192 canvas-height limit) with strip index `i` drawn at canvas row
+ * `i * cellHeight`, index 0 at the top. The caller (`reelView.ts`) owns and disposes the result;
+ * it is not cached, since every reel's strip differs.
+ */
+export function makeReelStripTexture(strip: readonly SymbolId[]): THREE.CanvasTexture {
+  const { canvas } = drawStripCanvas(strip)
+  const texture = new THREE.CanvasTexture(canvas)
+  configureStripTexture(texture)
+  return texture
+}
+
+/** How many vertically-offset copies `makeReelStripBlurTexture` composites per pixel column. */
+const STRIP_BLUR_TAPS: number = 12
+/** Motion-blur reach, as a fraction of one strip cell height, each direction. */
+const STRIP_BLUR_SPREAD = 0.45
+
+/**
+ * Same strip layout as `makeReelStripTexture` (same size, wrap, colorSpace, flipY, anisotropy -
+ * built through the same `drawStripCanvas`/`configureStripTexture` helpers) but pre-blurred
+ * vertically in canvas space, before the shared `PI/2` rotation - i.e. blurred along the axis
+ * that becomes the reel's circumference once wrapped. Used by `reelView.ts` as a second,
+ * always-blurred face shown through the sharp face while a reel is at speed.
+ */
+export function makeReelStripBlurTexture(strip: readonly SymbolId[]): THREE.CanvasTexture {
+  const { canvas: sharpCanvas, width, height, cellHeight } = drawStripCanvas(strip)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('2D canvas context unavailable for reel strip blur texture')
+  const maxOffset = cellHeight * STRIP_BLUR_SPREAD
+  ctx.globalAlpha = 1 / STRIP_BLUR_TAPS
+  for (let tap = 0; tap < STRIP_BLUR_TAPS; tap++) {
+    const u = STRIP_BLUR_TAPS === 1 ? 0 : tap / (STRIP_BLUR_TAPS - 1)
+    const dy = -maxOffset + u * (2 * maxOffset)
+    // Draw the source three times, offset by -height/0/+height, so the blur wraps around the
+    // strip's own top/bottom seam instead of picking up blank canvas at the edges.
+    ctx.drawImage(sharpCanvas, 0, dy - height)
+    ctx.drawImage(sharpCanvas, 0, dy)
+    ctx.drawImage(sharpCanvas, 0, dy + height)
+  }
+  ctx.globalAlpha = 1
+  ctx.fillStyle = 'rgba(0,0,0,0.15)'
+  ctx.fillRect(0, 0, width, height)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  configureStripTexture(texture)
   return texture
 }

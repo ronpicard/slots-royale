@@ -13,7 +13,7 @@ It plays for credits only. There is no real money, no purchases, and nothing to 
 - Five sevens on a line is the jackpot: 1000 times the coin value.
 - `MAX BET` jumps straight to the top coin value. `AUTO` spins a set number of times by itself and stops if you can no longer afford the next one.
 - You start with 1,000 credits, and your credits and history are kept in your browser. If you run out, the machine offers a refill.
-- The camera follows the game by default: the whole cabinet between spins, close on the reel window while they spin, and a pull-back to see the topper and confetti on a big win. The camera button or `C` cycles it through three fixed views: the reel window, the whole cabinet, and along the row of machines on the casino floor.
+- The camera sits close on the reel window by default and stays there from spin to spin. The camera button or `C` cycles it through three fixed views: the reel window, the whole cabinet, and along the row of machines on the casino floor.
 - Quick spin runs the reels at double speed. The outcome of a spin does not change.
 - While the menu is up, the machine plays itself.
 

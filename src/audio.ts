@@ -11,13 +11,22 @@ const NOISE_BUFFER_SECONDS = 1
 const MIN_VOICE_INTERVAL_S = 0.025
 /** Reel whirr's gain and filter frequency ease toward their targets with this time constant. */
 const REEL_TIME_CONSTANT = 0.09
-/** The reels' whirr: band-passed noise whose centre climbs with speed, a motor spinning up to a hiss. */
-const REEL_WHIRR_MIN_FREQ = 300
-const REEL_WHIRR_MAX_FREQ = 1800
+/** The reels' whirr: low-passed noise that opens up a little with speed, a soft rush rather than a hiss. */
+const REEL_WHIRR_MIN_FREQ = 500
+const REEL_WHIRR_MAX_FREQ = 1300
+const REEL_WHIRR_LEVEL = 0.2
+/** A gentle motor purr under the rush: a triangle wave whose pitch follows the reels' speed. */
+const REEL_PURR_MIN_HZ = 52
+const REEL_PURR_MAX_HZ = 104
+const REEL_PURR_LOWPASS_HZ = 260
+const REEL_PURR_LEVEL = 0.1
+/** Tremolo depth on the whirr at full speed; it scales with the level so a stopped reel is silent. */
+const REEL_FLUTTER_DEPTH = 0.2
 /** Ticks: a looped buffer of tiny decaying impulses, the strip's detents clicking past as it spins. */
 const REEL_TICK_BUFFER_SECONDS = 2
 const REEL_TICKS_PER_SECOND = 24
-const REEL_TICK_HIGHPASS_HZ = 2200
+const REEL_TICK_BANDPASS_HZ = 1600
+const REEL_TICK_LEVEL = 0.1
 
 /** A synthesised convolution reverb glues every voice into a shared "room". */
 const REVERB_SECONDS = 1.6
@@ -688,14 +697,18 @@ const VOICES: Record<SoundName, Voice> = {
 }
 
 /**
- * The reel-whirr loop. A band-passed noise layer (`whirr`) climbs in centre frequency with pitch,
- * a slow LFO (`flutter`) adds a slight tremolo to it, and a looped buffer of tiny ticks (`tick`)
- * plays alongside, faster and louder as the reels spin up.
+ * The reel-whirr loop. A low-passed noise layer (`whirr`) opens up with pitch, a triangle purr
+ * (`purr`) hums underneath it, a slow LFO (`flutter`) adds a slight tremolo whose depth follows
+ * the level, and a looped buffer of tiny ticks (`tick`) plays alongside, faster as the reels
+ * spin up. Everything sits at zero gain until `setReels` eases it up, and returns there after.
  */
 interface ReelNodes {
   source: AudioBufferSourceNode
   whirrFilter: BiquadFilterNode
   whirrGain: GainNode
+  purr: OscillatorNode
+  purrFilter: BiquadFilterNode
+  purrGain: GainNode
   flutter: OscillatorNode
   flutterDepth: GainNode
   tick: AudioBufferSourceNode
@@ -960,8 +973,8 @@ export function createAudio(): GameAudio {
     source.loop = true
 
     const whirrFilter = context.createBiquadFilter()
-    whirrFilter.type = 'bandpass'
-    whirrFilter.Q.value = 1.4
+    whirrFilter.type = 'lowpass'
+    whirrFilter.Q.value = 0.7
     whirrFilter.frequency.value = REEL_WHIRR_MIN_FREQ
     const whirrGain = context.createGain()
     whirrGain.gain.value = 0
@@ -969,12 +982,24 @@ export function createAudio(): GameAudio {
     whirrFilter.connect(whirrGain)
     whirrGain.connect(out)
 
-    // A slight tremolo on the whirr, on top of its base level; sped up as the reels spin (see `setReels`).
+    const purr = context.createOscillator()
+    purr.type = 'triangle'
+    purr.frequency.value = REEL_PURR_MIN_HZ
+    const purrFilter = context.createBiquadFilter()
+    purrFilter.type = 'lowpass'
+    purrFilter.frequency.value = REEL_PURR_LOWPASS_HZ
+    const purrGain = context.createGain()
+    purrGain.gain.value = 0
+    purr.connect(purrFilter)
+    purrFilter.connect(purrGain)
+    purrGain.connect(out)
+
+    // A slight tremolo on the whirr; its depth follows the level in `setReels`, so it is silent at rest.
     const flutter = context.createOscillator()
     flutter.type = 'sine'
     flutter.frequency.value = 7
     const flutterDepth = context.createGain()
-    flutterDepth.gain.value = 0.25
+    flutterDepth.gain.value = 0
     flutter.connect(flutterDepth)
     flutterDepth.connect(whirrGain.gain)
 
@@ -982,8 +1007,9 @@ export function createAudio(): GameAudio {
     tick.buffer = createReelTickBuffer(context)
     tick.loop = true
     const tickFilter = context.createBiquadFilter()
-    tickFilter.type = 'highpass'
-    tickFilter.frequency.value = REEL_TICK_HIGHPASS_HZ
+    tickFilter.type = 'bandpass'
+    tickFilter.Q.value = 1.2
+    tickFilter.frequency.value = REEL_TICK_BANDPASS_HZ
     const tickGain = context.createGain()
     tickGain.gain.value = 0
     tick.connect(tickFilter)
@@ -991,10 +1017,11 @@ export function createAudio(): GameAudio {
     tickGain.connect(out)
 
     source.start(now)
+    purr.start(now)
     tick.start(now, Math.random() * REEL_TICK_BUFFER_SECONDS)
     flutter.start(now)
 
-    reels = { source, whirrFilter, whirrGain, flutter, flutterDepth, tick, tickFilter, tickGain }
+    reels = { source, whirrFilter, whirrGain, purr, purrFilter, purrGain, flutter, flutterDepth, tick, tickFilter, tickGain }
     return reels
   }
 
@@ -1005,11 +1032,14 @@ export function createAudio(): GameAudio {
       const amount = clamp01(level)
       const p = clamp01(pitch)
       const freq = REEL_WHIRR_MIN_FREQ * Math.pow(REEL_WHIRR_MAX_FREQ / REEL_WHIRR_MIN_FREQ, p)
-      nodes.whirrGain.gain.setTargetAtTime(amount * 0.5, now, REEL_TIME_CONSTANT)
+      nodes.whirrGain.gain.setTargetAtTime(amount * REEL_WHIRR_LEVEL, now, REEL_TIME_CONSTANT)
       nodes.whirrFilter.frequency.setTargetAtTime(freq, now, REEL_TIME_CONSTANT)
-      nodes.flutter.frequency.setTargetAtTime(6 + 9 * p, now, REEL_TIME_CONSTANT)
+      nodes.purr.frequency.setTargetAtTime(REEL_PURR_MIN_HZ + (REEL_PURR_MAX_HZ - REEL_PURR_MIN_HZ) * p, now, REEL_TIME_CONSTANT)
+      nodes.purrGain.gain.setTargetAtTime(amount * REEL_PURR_LEVEL, now, REEL_TIME_CONSTANT)
+      nodes.flutter.frequency.setTargetAtTime(5 + 6 * p, now, REEL_TIME_CONSTANT)
+      nodes.flutterDepth.gain.setTargetAtTime(amount * REEL_WHIRR_LEVEL * REEL_FLUTTER_DEPTH, now, REEL_TIME_CONSTANT)
       // The ticks stand out more as the reels slow toward a stop.
-      nodes.tickGain.gain.setTargetAtTime(amount * 0.16 * (1.3 - 0.5 * p), now, REEL_TIME_CONSTANT)
+      nodes.tickGain.gain.setTargetAtTime(amount * REEL_TICK_LEVEL * (1.3 - 0.5 * p), now, REEL_TIME_CONSTANT)
       nodes.tick.playbackRate.setTargetAtTime(0.35 + 1.15 * p, now, REEL_TIME_CONSTANT)
       // The crowd hushes while the reels spin.
       if (ambience) {
@@ -1023,8 +1053,9 @@ export function createAudio(): GameAudio {
       if (reels) {
         reels.source.stop()
         reels.tick.stop()
+        reels.purr.stop()
         reels.flutter.stop()
-        for (const node of [reels.source, reels.whirrFilter, reels.whirrGain, reels.flutter, reels.flutterDepth, reels.tick, reels.tickFilter, reels.tickGain]) {
+        for (const node of [reels.source, reels.whirrFilter, reels.whirrGain, reels.purr, reels.purrFilter, reels.purrGain, reels.flutter, reels.flutterDepth, reels.tick, reels.tickFilter, reels.tickGain]) {
           node.disconnect()
         }
       }

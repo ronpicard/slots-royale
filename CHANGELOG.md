@@ -2,6 +2,16 @@
 
 All notable changes to Slots Royale are documented in this file, following the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [1.3.1] - 2026-09-27
+
+### Fixed
+
+- The reel whirr no longer keeps pulsing quietly in the background after the reels have stopped: its tremolo now scales with the reels' level instead of sitting on top of it.
+
+### Changed
+
+- The spinning sound is softer: a low-passed rush with a gentle motor purr underneath and mellower ticks, in place of the band-passed hiss.
+
 ## [1.3.0] - 2026-09-27
 
 ### Added

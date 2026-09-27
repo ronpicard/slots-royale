@@ -19,22 +19,22 @@ function fakeStorage(initial?: Record<string, string>): Storage {
   } as unknown as Storage
 }
 
-test('loadCamera defaults to the close view', () => {
-  assert.equal(loadCamera(null), 'close')
-  assert.equal(loadCamera(fakeStorage()), 'close')
+test('loadCamera defaults to the wide view', () => {
+  assert.equal(loadCamera(null), 'wide')
+  assert.equal(loadCamera(fakeStorage()), 'wide')
 })
 
-test('loadCamera keeps a current view and maps the old auto, reels and cabinet views onto close, close and wide', () => {
+test('loadCamera keeps a current view and maps the old auto, reels and cabinet views onto wide, close and wide', () => {
   assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'close' })), 'close')
   assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'wide' })), 'wide')
   assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'floor' })), 'floor')
-  assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'auto' })), 'close')
+  assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'auto' })), 'wide')
   assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'reels' })), 'close')
   assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'cabinet' })), 'wide')
 })
 
-test('loadCamera falls back to close for an unknown value', () => {
-  assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'nonsense' })), 'close')
+test('loadCamera falls back to wide for an unknown value', () => {
+  assert.equal(loadCamera(fakeStorage({ 'slots-royale.camera': 'nonsense' })), 'wide')
 })
 
 test('saveCamera then loadCamera round-trips every view', () => {

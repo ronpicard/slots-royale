@@ -39,6 +39,7 @@ import {
   COIN_VALUES,
   betDown as betDownSession,
   betUp as betUpSession,
+  canBetUp as canBetUpSession,
   createSession,
   isBroke,
   maxBet as maxBetSession,
@@ -427,7 +428,7 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
   let session = createSession(null)
   let quickSpin = false
   let paused = false
-  let cameraView: CameraView = 'close'
+  let cameraView: CameraView = 'wide'
 
   let simTime = 0
   let displayedWin = 0
@@ -526,7 +527,7 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
       window: session.phase !== 'spinning' ? (outcome?.window ?? null) : null,
       history: session.history.slice(0, 20),
       canSpin: canSpinNow(),
-      canBetUp: mode === 'play' && session.phase !== 'spinning' && session.freeSpins === null,
+      canBetUp: mode === 'play' && canBetUpSession(session),
       canBetDown: mode === 'play' && session.phase !== 'spinning' && session.freeSpins === null,
       broke: isBroke(session),
       spins: session.stats.spins,

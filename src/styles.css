@@ -777,6 +777,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* The auto-play list pops up above the bar, so the bar must not clip it like other felt panels. */
+  overflow: visible;
   animation: rise-in 0.3s var(--ease-standard);
 }
 

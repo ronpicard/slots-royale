@@ -2,6 +2,20 @@
 
 All notable changes to Slots Royale are documented in this file, following the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [1.4.0] - 2026-09-27
+
+### Changed
+
+- The game opens in the wide view, with the whole cabinet and its button deck in shot. `C` now cycles wide, close, floor. A camera view you picked earlier is still remembered.
+- The machine looks more like the real thing. The deck buttons are domed, backlit caps in chrome bezels with their labels printed on top, the cabinet has a glossy piano-black clearcoat with LED accent strips down its sides, and the deck is black pebbled leatherette in a brushed-steel frame behind a padded armrest.
+- The stools are proper casino stools: a weighted domed base, a chrome column with a foot ring, and a piped burgundy leather cushion.
+
+### Fixed
+
+- The bet can no longer exceed your credits. `BET +` stops at the largest bet you can pay, `MAX BET` picks the highest affordable coin, and if a losing spin leaves you short the coin value drops to what you can still cover and auto-play stops, so `SPIN` never greys out while you still have enough for a smaller bet.
+- The auto-play count list is no longer cut off by the bottom bar.
+- The labels on the machine's deck buttons now show. They were hidden inside the buttons.
+
 ## [1.3.1] - 2026-09-27
 
 ### Fixed

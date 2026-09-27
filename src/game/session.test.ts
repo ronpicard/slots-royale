@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { Session, SessionSave } from './types.ts'
+import type { Session, SessionSave, SessionStats, SpinOutcome } from './types.ts'
 import { LINE_COUNT } from './types.ts'
 import {
   COIN_VALUES,
@@ -8,6 +8,7 @@ import {
   STARTING_BANKROLL,
   betDown,
   betUp,
+  canBetUp,
   createSession,
   isBroke,
   maxBet,
@@ -76,6 +77,38 @@ test('maxBet jumps straight to the highest coin value', () => {
   assert.equal(t.session.coinValue, COIN_VALUES[COIN_VALUES.length - 1])
 })
 
+test('betUp refuses a coin whose total bet would exceed the bankroll', () => {
+  const s0: Session = { ...setCoinValue(freshSession(), 5).session, bankroll: 150 }
+  const t = betUp(s0)
+  assert.equal(t.session.coinValue, 5, '10 x 20 lines = 200, more than the 150 bankroll')
+  assert.deepEqual(t.commands, [])
+})
+
+test('betUp still raises the coin value when the next one is affordable', () => {
+  const s0: Session = { ...setCoinValue(freshSession(), 5).session, bankroll: 300 }
+  const t = betUp(s0)
+  assert.equal(t.session.coinValue, 10)
+})
+
+test('maxBet picks the largest affordable coin, and does nothing when broke', () => {
+  const affordable: Session = { ...freshSession(), bankroll: 450 }
+  assert.equal(maxBet(affordable).session.coinValue, 10, '10 x 20 = 200 fits in 450, 25 x 20 = 500 does not')
+
+  const broke: Session = { ...freshSession(), bankroll: 5 }
+  assert.deepEqual(maxBet(broke), { session: broke, commands: [] })
+})
+
+test('canBetUp is false at the cap, false while spinning, and true below the cap when affordable', () => {
+  const atCap: Session = { ...freshSession(), coinValue: 25 }
+  assert.equal(canBetUp(atCap), false)
+
+  const spinning: Session = { ...freshSession(), phase: 'spinning' }
+  assert.equal(canBetUp(spinning), false)
+
+  const belowCap: Session = { ...freshSession(), coinValue: 5, bankroll: 300 }
+  assert.equal(canBetUp(belowCap), true)
+})
+
 test('totalBet is the coin value times the line count', () => {
   const s = setCoinValue(freshSession(), 5).session
   assert.equal(totalBet(s), 5 * LINE_COUNT)
@@ -114,6 +147,76 @@ test('settle is a no-op outside the spinning phase', () => {
   const s0 = freshSession()
   const t = settle(s0)
   assert.deepEqual(t.session, s0)
+})
+
+test('settle lowers the coin to the largest affordable, stops autoplay, and emits a message when a losing spin leaves the bankroll below the bet', () => {
+  const bet = 10 * LINE_COUNT
+  const outcome: SpinOutcome = {
+    stops: [0, 0, 0, 0, 0],
+    window: [[], [], [], [], []],
+    lineWins: [],
+    scatter: null,
+    totalWin: 0,
+    tier: 'none',
+    free: false,
+    bet,
+  }
+  const spinning: Session = {
+    ...setAutoplay(freshSession(), 5).session,
+    phase: 'spinning',
+    coinValue: 10,
+    bankroll: 150, // the bet was already taken off before spinning; 150 can no longer cover 200
+    lastOutcome: outcome,
+  }
+  const settled = settle(spinning)
+  assert.equal(settled.session.coinValue, 5, '5 x 20 = 100 is the largest total bet that fits in 150')
+  assert.equal(settled.session.autoplayRemaining, 0)
+  assert.ok(settled.commands.some((c) => c.type === 'message' && /Bet lowered to 100/.test(c.text)))
+})
+
+test('settle leaves the coin alone during a free-spin bonus and when broke', () => {
+  const bonusOutcome: SpinOutcome = {
+    stops: [0, 0, 0, 0, 0],
+    window: [[], [], [], [], []],
+    lineWins: [],
+    scatter: null,
+    totalWin: 0,
+    tier: 'none',
+    free: true,
+    bet: 100,
+  }
+  const spinningBonus: Session = {
+    ...freshSession(),
+    phase: 'spinning',
+    coinValue: 25,
+    bankroll: 10,
+    freeSpins: { remaining: 2, total: 2, won: 0, multiplier: 2, bet: 100 },
+    lastOutcome: bonusOutcome,
+  }
+  const settledBonus = settle(spinningBonus)
+  assert.equal(settledBonus.session.coinValue, 25, 'coin value is untouched during a bonus, however small the bankroll')
+  assert.ok(settledBonus.session.freeSpins !== null)
+
+  const brokeOutcome: SpinOutcome = {
+    stops: [0, 0, 0, 0, 0],
+    window: [[], [], [], [], []],
+    lineWins: [],
+    scatter: null,
+    totalWin: 0,
+    tier: 'none',
+    free: false,
+    bet: 100,
+  }
+  const spinningBroke: Session = {
+    ...freshSession(),
+    phase: 'spinning',
+    coinValue: 5,
+    bankroll: 0,
+    lastOutcome: brokeOutcome,
+  }
+  const settledBroke = settle(spinningBroke)
+  assert.equal(settledBroke.session.coinValue, 5, 'no coin value is affordable, so refill takes over instead')
+  assert.ok(!settledBroke.commands.some((c) => c.type === 'message' && /Bet lowered/.test(c.text)))
 })
 
 test('a free spin takes no bet, doubles the multiplier, and reports free: true', () => {
@@ -282,6 +385,14 @@ test('toSave and parseSessionSave round-trip', () => {
   assert.equal(restored.coinValue, save.coinValue)
   assert.deepEqual(restored.history, save.history)
   assert.deepEqual(restored.stats, save.stats)
+})
+
+test('createSession clamps a saved coin value the saved bankroll cannot cover', () => {
+  const stats: SessionStats = { spins: 0, totalBet: 0, totalWon: 0, biggestWin: 0, freeSpinsPlayed: 0, jackpots: 0, peakBankroll: 300 }
+  const save: SessionSave = { version: 1, bankroll: 300, coinValue: 25, history: [], stats }
+  const restored = createSession(save)
+  assert.equal(restored.coinValue, 10, '10 x 20 = 200 fits in 300, 25 x 20 = 500 does not')
+  assert.equal(restored.bankroll, 300)
 })
 
 test('parseSessionSave rejects malformed data', () => {

@@ -27,7 +27,7 @@ type Mode = 'menu' | 'play'
 const DOCKED_PANEL_MAX_FRACTION = 0.7
 
 /** Pressing the camera button (or the `C` key) steps through these views in order, then wraps. */
-const CAMERA_CYCLE: CameraView[] = ['close', 'wide', 'floor']
+const CAMERA_CYCLE: CameraView[] = ['wide', 'close', 'floor']
 
 /** `A` (or the HUD's AUTO menu) toggles this many autoplay spins on and off. */
 const AUTOPLAY_TOGGLE_COUNT = 25

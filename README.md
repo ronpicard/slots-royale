@@ -11,9 +11,9 @@ It plays for credits only. There is no real money, no purchases, and nothing to 
 - The wild substitutes for every symbol but scatter; a line of five wilds pays as five sevens.
 - Three or more scatters anywhere on the reels award free spins at the triggering bet, with every win doubled, and can retrigger for more.
 - Five sevens on a line is the jackpot: 1000 times the coin value.
-- `MAX BET` jumps straight to the top coin value. `AUTO` spins a set number of times by itself and stops if you can no longer afford the next one.
+- `MAX BET` jumps to the highest coin value your credits can cover. The bet can never exceed your credits: `BET +` stops at what you can afford, and if a losing spin leaves you short, the coin value drops to the largest bet you can still pay. `AUTO` spins a set number of times by itself and stops if you can no longer afford the next one.
 - You start with 1,000 credits, and your credits and history are kept in your browser. If you run out, the machine offers a refill.
-- The camera opens close on the reel window, with the gold bezel, the payline plaques and the top of the button deck in frame, and stays there from spin to spin. The camera button or `C` cycles it through three fixed views: close, wide (the whole cabinet and its marquee), and along the row of machines on the casino floor.
+- The camera opens wide on the whole cabinet, marquee and button deck, and stays there from spin to spin. The camera button or `C` cycles it through three fixed views: wide, close on the reel window, and along the row of machines on the casino floor. The last view you picked is remembered.
 - Quick spin runs the reels at double speed. The outcome of a spin does not change.
 - While the menu is up, the machine plays itself.
 

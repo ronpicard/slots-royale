@@ -19,11 +19,12 @@
  * lights its number plaque.
  *
  * Raycast targets: the engine (`Engine.ts`) hit-tests pointer input against named meshes. The
- * SPIN button's cylinder, the BET button's cylinder, the MAX BET button's cylinder, the AUTO
- * button's cylinder, and the lever's ball knob each carry `mesh.name` ('spin' / 'bet' / 'max' /
+ * SPIN button's dome cap, the BET button's dome cap, the MAX BET button's dome cap, the AUTO
+ * button's dome cap, and the lever's ball knob each carry `mesh.name` ('spin' / 'bet' / 'max' /
  * 'auto' / 'lever') and `mesh.userData.button` set to the same string, so a raycast intersection's
  * `object.userData.button` names the control to act on regardless of which mesh in the hierarchy
- * was hit.
+ * was hit. Each cap's printed label is a separate mesh with `raycast` disabled so picks always
+ * land on the cap underneath.
  *
  * `setPaylineGlow`'s shape: the compressed spec for this method reads `setPaylineGlow(lines:
  * number[], cells per line, color)`. Read literally that's three independent arguments, but the
@@ -107,6 +108,10 @@ const BRASS = '#c9a54a'
 const CHROME = '#d8dade'
 const RED_BUTTON = '#c81f2f'
 const RED_BUTTON_LIT = '#ff3b4d'
+const AMBER_BUTTON = '#e0a526'
+const AMBER_BUTTON_EMISSIVE = '#f0b43a'
+const VIOLET_BUTTON = '#7a3fb8'
+const VIOLET_BUTTON_EMISSIVE = '#9a66e0'
 const GREEN_LED = '#37e07a'
 const DISPLAY_FONT = '"Playfair Display", Didot, Georgia, serif'
 const TOPPER_FONT = '"Didot", "Playfair Display", Georgia, serif'
@@ -306,7 +311,9 @@ export function createMachineView(): MachineView {
   // --- Shared materials -------------------------------------------------------------------
   const scratchRoughness = own(makeScratchRoughness())
   const cabinetMaterial = own(
-    new THREE.MeshStandardMaterial({ color: BLACK_LACQUER, roughness: 0.3, metalness: 0.2, roughnessMap: scratchRoughness }),
+    new THREE.MeshPhysicalMaterial({
+      color: BLACK_LACQUER, roughness: 0.38, metalness: 0.3, roughnessMap: scratchRoughness, clearcoat: 1, clearcoatRoughness: 0.07,
+    }),
   )
   const brushedRoughness = own(makeBrushedMetalRoughness())
   const brushedBump = own(makeBrushedMetalBump())
@@ -323,9 +330,10 @@ export function createMachineView(): MachineView {
       clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.4, transparent: true, depthWrite: false,
     }),
   )
-  const chromeMaterial = own(new THREE.MeshStandardMaterial({ color: CHROME, metalness: 1, roughness: 0.15 }))
-  const brassMaterial = own(new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.9, roughness: 0.3 }))
-  const pebbleBump = own(makePebbleBump())
+  const chromeMaterial = own(new THREE.MeshStandardMaterial({ color: CHROME, metalness: 1, roughness: 0.12 }))
+  // Satin chrome for the deck button bezels: the spotlight lands on them head-on, and mirror chrome blooms into halos.
+  const satinChromeMaterial = own(new THREE.MeshStandardMaterial({ color: CHROME, metalness: 1, roughness: 0.32 }))
+  const brassMaterial = own(new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.9, roughness: 0.28 }))
   const burgundyLacquerMaterial = own(
     new THREE.MeshPhysicalMaterial({ color: BURGUNDY_LACQUER, roughness: 0.25, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.15 }),
   )
@@ -358,6 +366,14 @@ export function createMachineView(): MachineView {
   // --- Brushed-metal side trims, proud of the front face along both outer edges -----------
   addBox(2, CABINET_HEIGHT, 0.3, CABINET_MIN_X + 1, CABINET_HEIGHT / 2, CABINET_MAX_Z + 0.05, brushedMetalMaterial)
   addBox(2, CABINET_HEIGHT, 0.3, CABINET_MAX_X - 1, CABINET_HEIGHT / 2, CABINET_MAX_Z + 0.05, brushedMetalMaterial)
+
+  // --- LED accent strips on both side faces, near the front edge: tinted to match the topper's
+  // current colour each frame (see `update`), so the cabinet reads as part of the light show. ---
+  const ledStripMaterial = own(
+    new THREE.MeshStandardMaterial({ color: GOLD_BRIGHT, emissive: GOLD_BRIGHT, emissiveIntensity: 1.2, roughness: 0.4 }),
+  )
+  addBox(0.1, CABINET_HEIGHT - 4, 0.45, CABINET_MAX_X + 0.05, CABINET_HEIGHT / 2, CABINET_MAX_Z - 1.2, ledStripMaterial, { shadow: false })
+  addBox(0.1, CABINET_HEIGHT - 4, 0.45, -(CABINET_MAX_X + 0.05), CABINET_HEIGHT / 2, CABINET_MAX_Z - 1.2, ledStripMaterial, { shadow: false })
 
   // --- Gold pinstripes on the front face: two verticals near the outer edges, one horizontal
   // along the top, so the burgundy lacquer reads as a high-roller cabinet, not a black box. ---
@@ -618,7 +634,26 @@ export function createMachineView(): MachineView {
   deckGroup.rotation.x = DECK_ANGLE
   group.add(deckGroup)
 
-  const deckPanelMaterial = own(new THREE.MeshStandardMaterial({ color: '#1c1116', roughness: 0.55, metalness: 0.25, bumpMap: pebbleBump, bumpScale: 0.03 }))
+  function addDeckBox(width: number, height: number, depth: number, x: number, y: number, z: number, material: THREE.Material): THREE.Mesh {
+    const geometry = ownGeometry(new THREE.BoxGeometry(width, height, depth))
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(x, y, z)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    deckGroup.add(mesh)
+    return mesh
+  }
+
+  // Black pebbled leatherette bump, shared by the deck panel and the padded armrest.
+  const deckPebbleBump = own(makePebbleBump())
+  deckPebbleBump.wrapS = THREE.RepeatWrapping
+  deckPebbleBump.wrapT = THREE.RepeatWrapping
+  deckPebbleBump.repeat.set(3, 1.6)
+  const deckPanelMaterial = own(
+    new THREE.MeshPhysicalMaterial({
+      color: '#0b090a', roughness: 0.8, metalness: 0, specularIntensity: 0.25, sheen: 0.4, sheenRoughness: 0.6, sheenColor: '#3a3236', bumpMap: deckPebbleBump, bumpScale: 0.02,
+    }),
+  )
   {
     const geometry = ownGeometry(new THREE.BoxGeometry(DECK_WIDTH, DECK_PANEL_HEIGHT, 1.4))
     const mesh = new THREE.Mesh(geometry, deckPanelMaterial)
@@ -627,47 +662,128 @@ export function createMachineView(): MachineView {
     deckGroup.add(mesh)
   }
 
-  const buttonMaterials: Record<'spin' | 'bet' | 'max', THREE.MeshStandardMaterial> = {
-    spin: own(new THREE.MeshStandardMaterial({ color: RED_BUTTON, emissive: RED_BUTTON, emissiveIntensity: 0.25, roughness: 0.35, bumpMap: pebbleBump, bumpScale: 0.02 })),
-    bet: own(new THREE.MeshStandardMaterial({ color: '#141319', emissive: GOLD, emissiveIntensity: 0.15, roughness: 0.4, bumpMap: pebbleBump, bumpScale: 0.02 })),
-    max: own(new THREE.MeshStandardMaterial({ color: '#141319', emissive: GOLD, emissiveIntensity: 0.15, roughness: 0.4, bumpMap: pebbleBump, bumpScale: 0.02 })),
+  // Brushed-steel frame around the deck face, proud of it along all four edges.
+  {
+    const deckFrameZ = 0.7 + 0.125
+    const deckFrameThickness = 0.7
+    const deckFrameProud = 0.25
+    addDeckBox(DECK_WIDTH, deckFrameThickness, deckFrameProud, 0, DECK_PANEL_HEIGHT / 2, deckFrameZ, brushedMetalMaterial)
+    addDeckBox(DECK_WIDTH, deckFrameThickness, deckFrameProud, 0, -DECK_PANEL_HEIGHT / 2, deckFrameZ, brushedMetalMaterial)
+    addDeckBox(deckFrameThickness, DECK_PANEL_HEIGHT, deckFrameProud, DECK_WIDTH / 2, 0, deckFrameZ, brushedMetalMaterial)
+    addDeckBox(deckFrameThickness, DECK_PANEL_HEIGHT, deckFrameProud, -DECK_WIDTH / 2, 0, deckFrameZ, brushedMetalMaterial)
+  }
+
+  // Padded armrest along the player edge.
+  const armrestMaterial = own(
+    new THREE.MeshPhysicalMaterial({
+      color: '#0f0c0d', roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.35, bumpMap: deckPebbleBump, bumpScale: 0.02,
+    }),
+  )
+  {
+    const geometry = ownGeometry(new THREE.CapsuleGeometry(1.1, DECK_WIDTH - 1.2, 6, 20))
+    const mesh = new THREE.Mesh(geometry, armrestMaterial)
+    mesh.rotation.z = Math.PI / 2
+    mesh.position.set(0, -DECK_PANEL_HEIGHT / 2 - 0.9, 0.2)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    deckGroup.add(mesh)
+  }
+
+  // Cap materials: MeshPhysicalMaterial for a glossy, clearcoated dome; `setButtonLit` only ever
+  // touches spin/bet/max (the auto cap's glow is fixed, see below).
+  const buttonMaterials: Record<'spin' | 'bet' | 'max', THREE.MeshPhysicalMaterial> = {
+    spin: own(new THREE.MeshPhysicalMaterial({ color: RED_BUTTON, emissive: RED_BUTTON, emissiveIntensity: 0.28, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06 })),
+    bet: own(new THREE.MeshPhysicalMaterial({ color: AMBER_BUTTON, emissive: AMBER_BUTTON_EMISSIVE, emissiveIntensity: 0.25, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06 })),
+    max: own(new THREE.MeshPhysicalMaterial({ color: AMBER_BUTTON, emissive: AMBER_BUTTON_EMISSIVE, emissiveIntensity: 0.25, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06 })),
   }
   const autoButtonMaterial = own(
-    new THREE.MeshStandardMaterial({ color: '#141319', emissive: '#b98cf2', emissiveIntensity: 0.2, roughness: 0.4, bumpMap: pebbleBump, bumpScale: 0.02 }),
+    new THREE.MeshPhysicalMaterial({
+      color: VIOLET_BUTTON, emissive: VIOLET_BUTTON_EMISSIVE, emissiveIntensity: 0.25, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06,
+    }),
   )
 
-  function makeLabelMaterial(lines: readonly string[], color: string, size = 256): THREE.MeshStandardMaterial {
+  function makeCapLabelMaterial(lines: readonly string[], color: string, size = 256): THREE.MeshStandardMaterial {
     const { canvas, ctx } = makeCanvas(size, size)
     paintButtonLabel(ctx, size, lines, color)
     const texture = own(finishTexture(canvas))
-    return own(new THREE.MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, emissiveIntensity: 0.9, transparent: true, roughness: 0.5 }))
+    return own(
+      new THREE.MeshStandardMaterial({
+        map: texture, emissiveMap: texture, emissive: 0xffffff, emissiveIntensity: 0.55,
+        transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, roughness: 0.3,
+      }),
+    )
   }
 
-  function addRoundButton(
-    x: number, y: number, radius: number, height: number, bodyMaterial: THREE.Material, labelLines: readonly string[], labelColor: string, name?: string,
-  ): THREE.Mesh {
-    const geometry = ownGeometry(new THREE.CylinderGeometry(radius, radius, height, 24))
-    const mesh = new THREE.Mesh(geometry, bodyMaterial)
-    mesh.position.set(x, y, height / 2 + 0.72)
-    mesh.rotation.x = Math.PI / 2
-    mesh.castShadow = true
-    mesh.receiveShadow = true
-    if (name) {
-      mesh.name = name
-      mesh.userData.button = name
+  /** Chrome bezel + illuminated dome cap + printed label, built around the local y axis; the
+   *  caller's group rotation (`rotation.x = Math.PI / 2`) points that axis straight out of the
+   *  deck face. Replaces the old `addRoundButton`, whose label always faced into the cylinder. */
+  function addArcadeButton(
+    x: number, y: number, radius: number, capMaterial: THREE.MeshPhysicalMaterial,
+    labelLines: readonly string[], labelColor: string, name: 'spin' | 'bet' | 'max' | 'auto',
+  ): THREE.Group {
+    const buttonGroup = new THREE.Group()
+    buttonGroup.position.set(x, y, 0.7)
+    buttonGroup.rotation.x = Math.PI / 2
+    deckGroup.add(buttonGroup)
+
+    const bezelPoints = [
+      new THREE.Vector2(radius + 0.02, 0),
+      new THREE.Vector2(radius + 0.55, 0),
+      new THREE.Vector2(radius + 0.62, 0.12),
+      new THREE.Vector2(radius + 0.55, 0.3),
+      new THREE.Vector2(radius + 0.3, 0.38),
+      new THREE.Vector2(radius + 0.06, 0.3),
+      new THREE.Vector2(radius + 0.02, 0.05),
+    ]
+    const bezel = new THREE.Mesh(ownGeometry(new THREE.LatheGeometry(bezelPoints, 40)), satinChromeMaterial)
+    bezel.castShadow = true
+    bezel.receiveShadow = true
+    buttonGroup.add(bezel)
+
+    const well = new THREE.Mesh(ownGeometry(new THREE.CircleGeometry(radius + 0.05, 40)), maskMaterial)
+    well.rotation.x = -Math.PI / 2
+    well.position.y = 0.02
+    buttonGroup.add(well)
+
+    // Dome: a short vertical skirt at the base, then 8 points along an elliptical arc up to the crown.
+    const domeHeight = radius * 0.3
+    const domeSamples = 8
+    const capPoints: THREE.Vector2[] = [new THREE.Vector2(radius, 0), new THREE.Vector2(radius, 0.1)]
+    for (let i = 0; i <= domeSamples; i++) {
+      const t = (i / domeSamples) * (Math.PI / 2)
+      capPoints.push(new THREE.Vector2(radius * Math.cos(t), 0.1 + domeHeight * Math.sin(t)))
     }
-    deckGroup.add(mesh)
-    const labelGeometry = ownGeometry(new THREE.CircleGeometry(radius * 0.92, 24))
-    const labelMesh = new THREE.Mesh(labelGeometry, makeLabelMaterial(labelLines, labelColor))
-    labelMesh.position.set(0, 0, height / 2 + 0.01)
-    mesh.add(labelMesh)
-    return mesh
+    const capGeometry = ownGeometry(new THREE.LatheGeometry(capPoints, 40))
+    const cap = new THREE.Mesh(capGeometry, capMaterial)
+    cap.name = name
+    cap.userData.button = name
+    cap.castShadow = true
+    buttonGroup.add(cap)
+
+    // Label: a slightly enlarged copy of the cap geometry with planar UVs from local x/z, so the
+    // printed texture reads from directly outside the dome; raycast disabled so picks hit the cap.
+    const labelGeometry = ownGeometry(capGeometry.clone())
+    labelGeometry.scale(1.004, 1.004, 1.004)
+    const position = labelGeometry.attributes.position
+    const uv = new Float32Array(position.count * 2)
+    for (let i = 0; i < position.count; i++) {
+      const px = position.getX(i)
+      const pz = position.getZ(i)
+      uv[i * 2] = px / (2 * radius) + 0.5
+      uv[i * 2 + 1] = 0.5 - pz / (2 * radius)
+    }
+    labelGeometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+    const label = new THREE.Mesh(labelGeometry, makeCapLabelMaterial(labelLines, labelColor))
+    label.raycast = () => {}
+    buttonGroup.add(label)
+
+    return buttonGroup
   }
 
-  addRoundButton(7, -1.5, 3.4, 1.4, buttonMaterials.spin, ['SPIN'], '#ffe9c2', 'spin')
-  addRoundButton(-9.5, 2, 1.5, 1, buttonMaterials.bet, ['BET'], GOLD_BRIGHT, 'bet')
-  addRoundButton(-5.5, 2, 1.5, 1, buttonMaterials.max, ['MAX', 'BET'], GOLD_BRIGHT, 'max')
-  addRoundButton(-1.5, 2, 1.5, 1, autoButtonMaterial, ['AUTO'], '#e6d4ff', 'auto')
+  addArcadeButton(7, -1.5, 3.4, buttonMaterials.spin, ['SPIN'], '#fff1d6', 'spin')
+  addArcadeButton(-9.5, 2, 1.5, buttonMaterials.bet, ['BET'], '#2a1606', 'bet')
+  addArcadeButton(-5.5, 2, 1.5, buttonMaterials.max, ['MAX', 'BET'], '#2a1606', 'max')
+  addArcadeButton(-1.5, 2, 1.5, autoButtonMaterial, ['AUTO'], '#f4eaff', 'auto')
 
   // Coin slot and bill acceptor.
   addBox(3.2, 0.5, 0.5, -9.5, -3.6, 0.95, maskMaterial, { shadow: false })
@@ -678,6 +794,28 @@ export function createMachineView(): MachineView {
     const led = new THREE.Mesh(ownGeometry(new THREE.PlaneGeometry(0.5, 0.25)), ledMaterial)
     led.position.set(1.7, 0.9, 0.32)
     acceptor.add(led)
+
+    // Chrome bezel and smoked-glass mouth around the acceptor slot.
+    const acceptorBezelThickness = 0.2
+    const acceptorBezelWidth = 5
+    const acceptorBezelHeight = 2.9
+    const acceptorBezelZ = 0.32
+    const bezelTop = new THREE.Mesh(ownGeometry(new THREE.BoxGeometry(acceptorBezelWidth, acceptorBezelThickness, acceptorBezelThickness)), chromeMaterial)
+    bezelTop.position.set(0, acceptorBezelHeight / 2 - acceptorBezelThickness / 2, acceptorBezelZ)
+    acceptor.add(bezelTop)
+    const bezelBottom = new THREE.Mesh(ownGeometry(new THREE.BoxGeometry(acceptorBezelWidth, acceptorBezelThickness, acceptorBezelThickness)), chromeMaterial)
+    bezelBottom.position.set(0, -(acceptorBezelHeight / 2 - acceptorBezelThickness / 2), acceptorBezelZ)
+    acceptor.add(bezelBottom)
+    const bezelLeft = new THREE.Mesh(ownGeometry(new THREE.BoxGeometry(acceptorBezelThickness, acceptorBezelHeight, acceptorBezelThickness)), chromeMaterial)
+    bezelLeft.position.set(-(acceptorBezelWidth / 2 - acceptorBezelThickness / 2), 0, acceptorBezelZ)
+    acceptor.add(bezelLeft)
+    const bezelRight = new THREE.Mesh(ownGeometry(new THREE.BoxGeometry(acceptorBezelThickness, acceptorBezelHeight, acceptorBezelThickness)), chromeMaterial)
+    bezelRight.position.set(acceptorBezelWidth / 2 - acceptorBezelThickness / 2, 0, acceptorBezelZ)
+    acceptor.add(bezelRight)
+    const glassMouthMaterial = own(new THREE.MeshPhysicalMaterial({ color: '#0a0a0c', roughness: 0.1, clearcoat: 1 }))
+    const glassMouth = new THREE.Mesh(ownGeometry(new THREE.PlaneGeometry(3.6, 0.5)), glassMouthMaterial)
+    glassMouth.position.set(0, 0, acceptorBezelZ)
+    acceptor.add(glassMouth)
   }
 
   // --- Coin tray and kick plate -------------------------------------------------------------
@@ -692,6 +830,13 @@ export function createMachineView(): MachineView {
     const trough = new THREE.Mesh(ownGeometry(new THREE.BoxGeometry(CABINET_WIDTH * 0.6 - 1, 0.4, 5)), troughMaterial)
     trough.position.set(0, TRAY_Y + 1.3, CABINET_MAX_Z + 4)
     group.add(trough)
+    // Rounded chrome lip along the tray's top front edge.
+    const trayLip = new THREE.Mesh(ownGeometry(new THREE.CapsuleGeometry(0.45, CABINET_WIDTH * 0.6 - 1, 4, 16)), chromeMaterial)
+    trayLip.rotation.z = Math.PI / 2
+    trayLip.position.set(0, TRAY_Y + 1.5, CABINET_MAX_Z + 7)
+    trayLip.castShadow = true
+    trayLip.receiveShadow = true
+    group.add(trayLip)
   }
   addBox(CABINET_WIDTH, 4, 1, 0, 2, CABINET_MAX_Z + 0.5, brassMaterial)
 
@@ -791,8 +936,8 @@ export function createMachineView(): MachineView {
 
   function setButtonLit(name: 'spin' | 'bet' | 'max', lit: boolean): void {
     const material = buttonMaterials[name]
-    material.emissiveIntensity = lit ? (name === 'spin' ? 0.9 : 0.6) : name === 'spin' ? 0.25 : 0.15
-    material.color.set(name === 'spin' && lit ? RED_BUTTON_LIT : name === 'spin' ? RED_BUTTON : '#141319')
+    material.emissiveIntensity = name === 'spin' ? (lit ? 0.9 : 0.28) : lit ? 0.7 : 0.25
+    if (name === 'spin') material.color.set(lit ? RED_BUTTON_LIT : RED_BUTTON)
   }
 
   function showWinLamp(on: boolean): void {
@@ -833,6 +978,11 @@ export function createMachineView(): MachineView {
       material.emissive.copy(scratchColor)
     })
     signMaterial.emissiveIntensity = 1.1 + Math.sin(time * 1.1) * 0.15
+
+    // Cabinet LED strips: tinted to match the topper's own group-0 colour each frame.
+    applyTopperColor(topperMode, time, 0)
+    ledStripMaterial.color.copy(scratchColor)
+    ledStripMaterial.emissive.copy(scratchColor)
 
     // Win lamp: flashes and sweeps while on, sits dim while off.
     if (winLampOn) {

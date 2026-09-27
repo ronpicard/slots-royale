@@ -14,10 +14,13 @@
  */
 
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { TABLE_HEIGHT, TABLE_MAX_X, TABLE_MAX_Z, TABLE_MIN_X, TABLE_MIN_Z } from './layout.ts'
 import {
   makeBrushedMetalBump,
   makeBrushedMetalRoughness,
+  makePebbleBump,
+  makePowderCoatBump,
   makeWoodBump,
   makeWoodGrain,
 } from './materialTextures.ts'
@@ -904,12 +907,146 @@ export function createCasinoRoom(): CasinoRoom {
   const eastRowX = ROOM_MAX_X - SLOT_DEPTH / 2 - 2
   for (let i = 0; i < 6; i++) slotPlacements.push({ x: eastRowX, z: (i - 2.5) * SLOT_SPACING, rotY: -Math.PI / 2 })
 
-  const stoolSeatMaterial = own(new THREE.MeshStandardMaterial({ color: '#3a1218', roughness: 0.55, metalness: 0.1 }))
-  const stoolLegMaterial = own(new THREE.MeshStandardMaterial({ color: '#c8c8cc', roughness: 0.3, metalness: 0.9 }))
-  const stoolSeatGeometry = own(new THREE.CylinderGeometry(5, 4.2, 2, 14))
-  const stoolLegGeometry = own(new THREE.CylinderGeometry(0.6, 0.6, 24, 8))
-  const slotStoolSeats = own(new THREE.InstancedMesh(stoolSeatGeometry, stoolSeatMaterial, slotPlacements.length))
-  const slotStoolLegs = own(new THREE.InstancedMesh(stoolLegGeometry, stoolLegMaterial, slotPlacements.length))
+  // Casino stools: domed powder-coat base, chrome column and foot ring on tripod spokes, chrome
+  // seat pan, burgundy leather cushion with piping trim.
+  const stoolPowderMaterial = own(
+    new THREE.MeshStandardMaterial({
+      color: '#17151a',
+      roughness: 0.5,
+      metalness: 0.5,
+      bumpMap: own(makePowderCoatBump()),
+      bumpScale: 0.02,
+    }),
+  )
+  const stoolChromeMaterial = own(new THREE.MeshStandardMaterial({ color: '#d8dade', metalness: 1, roughness: 0.14 }))
+  const stoolLeatherBump = own(makePebbleBump())
+  stoolLeatherBump.wrapS = THREE.RepeatWrapping
+  stoolLeatherBump.wrapT = THREE.RepeatWrapping
+  stoolLeatherBump.repeat.set(4, 1)
+  const stoolLeatherMaterial = own(
+    new THREE.MeshPhysicalMaterial({
+      color: '#5a1422',
+      roughness: 0.5,
+      metalness: 0,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.35,
+      bumpMap: stoolLeatherBump,
+      bumpScale: 0.015,
+    }),
+  )
+  const stoolPipingMaterial = own(new THREE.MeshStandardMaterial({ color: '#3a0c16', roughness: 0.55 }))
+
+  const stoolBaseGeometry = own(
+    new THREE.LatheGeometry(
+      [
+        new THREE.Vector2(0.01, 0),
+        new THREE.Vector2(7.5, 0),
+        new THREE.Vector2(7.4, 0.5),
+        new THREE.Vector2(6.6, 1.1),
+        new THREE.Vector2(3.2, 1.9),
+        new THREE.Vector2(1.5, 2.4),
+        new THREE.Vector2(1.3, 2.6),
+      ],
+      40,
+    ),
+  )
+  stoolBaseGeometry.computeVertexNormals()
+
+  const stoolColumnGeometry = own(new THREE.CylinderGeometry(0.85, 1.05, 22.4, 20))
+  stoolColumnGeometry.translate(0, 13.7, 0)
+
+  const stoolRingRaw = new THREE.TorusGeometry(6.2, 0.32, 10, 48)
+  stoolRingRaw.rotateX(Math.PI / 2)
+  stoolRingRaw.translate(0, 9.5, 0)
+  const stoolRingParts: THREE.BufferGeometry[] = [stoolRingRaw]
+  for (let i = 0; i < 3; i++) {
+    const spoke = new THREE.CylinderGeometry(0.22, 0.22, 5.3, 8)
+    spoke.rotateZ(Math.PI / 2)
+    spoke.translate(3.55, 9.5, 0)
+    spoke.rotateY((i * Math.PI * 2) / 3)
+    stoolRingParts.push(spoke)
+  }
+  const stoolRingGeometry = own(mergeGeometries(stoolRingParts))
+  stoolRingParts.forEach((part) => part.dispose())
+
+  const stoolPanGeometry = own(new THREE.CylinderGeometry(5.6, 4.8, 0.7, 32))
+  stoolPanGeometry.translate(0, 25.2, 0)
+
+  const stoolCushionGeometry = own(
+    new THREE.LatheGeometry(
+      [
+        new THREE.Vector2(0.01, 25.5),
+        new THREE.Vector2(6.4, 25.5),
+        new THREE.Vector2(7.1, 25.8),
+        new THREE.Vector2(7.5, 26.6),
+        new THREE.Vector2(7.5, 27.4),
+        new THREE.Vector2(7.1, 28.1),
+        new THREE.Vector2(6.2, 28.5),
+        new THREE.Vector2(3.5, 28.75),
+        new THREE.Vector2(0.01, 28.8),
+      ],
+      48,
+    ),
+  )
+  stoolCushionGeometry.computeVertexNormals()
+
+  const stoolPipingTop = new THREE.TorusGeometry(7.5, 0.16, 8, 64)
+  stoolPipingTop.rotateX(Math.PI / 2)
+  stoolPipingTop.translate(0, 27.0, 0)
+  const stoolPipingBottom = new THREE.TorusGeometry(7.5, 0.16, 8, 64)
+  stoolPipingBottom.rotateX(Math.PI / 2)
+  stoolPipingBottom.translate(0, 25.9, 0)
+  const stoolPipingGeometry = own(mergeGeometries([stoolPipingTop, stoolPipingBottom]))
+  stoolPipingTop.dispose()
+  stoolPipingBottom.dispose()
+
+  function makeStoolPartMeshes(count: number) {
+    const bases = own(new THREE.InstancedMesh(stoolBaseGeometry, stoolPowderMaterial, count))
+    const columns = own(new THREE.InstancedMesh(stoolColumnGeometry, stoolChromeMaterial, count))
+    const rings = own(new THREE.InstancedMesh(stoolRingGeometry, stoolChromeMaterial, count))
+    const pans = own(new THREE.InstancedMesh(stoolPanGeometry, stoolChromeMaterial, count))
+    const cushions = own(new THREE.InstancedMesh(stoolCushionGeometry, stoolLeatherMaterial, count))
+    const piping = own(new THREE.InstancedMesh(stoolPipingGeometry, stoolPipingMaterial, count))
+    bases.castShadow = true
+    bases.receiveShadow = true
+    columns.castShadow = true
+    columns.receiveShadow = true
+    rings.receiveShadow = true
+    pans.receiveShadow = true
+    cushions.castShadow = true
+    cushions.receiveShadow = true
+    piping.receiveShadow = true
+    return { bases, columns, rings, pans, cushions, piping }
+  }
+
+  function setStoolMatrixAt(
+    parts: ReturnType<typeof makeStoolPartMeshes>,
+    index: number,
+    x: number,
+    z: number,
+    rotY: number,
+  ): void {
+    dummy.position.set(x, 0, z)
+    dummy.rotation.set(0, rotY, 0)
+    dummy.updateMatrix()
+    parts.bases.setMatrixAt(index, dummy.matrix)
+    parts.columns.setMatrixAt(index, dummy.matrix)
+    parts.rings.setMatrixAt(index, dummy.matrix)
+    parts.pans.setMatrixAt(index, dummy.matrix)
+    parts.cushions.setMatrixAt(index, dummy.matrix)
+    parts.piping.setMatrixAt(index, dummy.matrix)
+  }
+
+  function stoolInstanceMatricesNeedUpdate(parts: ReturnType<typeof makeStoolPartMeshes>): void {
+    parts.bases.instanceMatrix.needsUpdate = true
+    parts.columns.instanceMatrix.needsUpdate = true
+    parts.rings.instanceMatrix.needsUpdate = true
+    parts.pans.instanceMatrix.needsUpdate = true
+    parts.cushions.instanceMatrix.needsUpdate = true
+    parts.piping.instanceMatrix.needsUpdate = true
+  }
+
+  const slotStools = makeStoolPartMeshes(slotPlacements.length)
   const reelTextures: THREE.CanvasTexture[] = []
 
   slotPlacements.forEach((p, i) => {
@@ -942,31 +1079,36 @@ export function createCasinoRoom(): CasinoRoom {
     panel.rotation.x = PANEL_TILT
     body.add(panel)
 
-    dummy.position.set(
+    setStoolMatrixAt(
+      slotStools,
+      i,
       p.x + Math.sin(p.rotY) * (SHELF_FRONT + 12),
-      13,
       p.z + Math.cos(p.rotY) * (SHELF_FRONT + 12),
+      p.rotY,
     )
-    dummy.rotation.set(0, p.rotY, 0)
-    dummy.updateMatrix()
-    slotStoolSeats.setMatrixAt(i, dummy.matrix)
-    slotStoolLegs.setMatrixAt(i, dummy.matrix)
   })
-  slotStoolSeats.instanceMatrix.needsUpdate = true
-  slotStoolLegs.instanceMatrix.needsUpdate = true
-  group.add(slotStoolSeats, slotStoolLegs)
+  stoolInstanceMatricesNeedUpdate(slotStools)
+  group.add(
+    slotStools.bases,
+    slotStools.columns,
+    slotStools.rings,
+    slotStools.pans,
+    slotStools.cushions,
+    slotStools.piping,
+  )
 
   // --- Player-side stool (one, in front of the machine) -------------------------------------------
-  const railStoolSeats = own(new THREE.InstancedMesh(stoolSeatGeometry, stoolSeatMaterial, 1))
-  const railStoolLegs = own(new THREE.InstancedMesh(stoolLegGeometry, stoolLegMaterial, 1))
-  dummy.position.set(0, 22, TABLE_MAX_Z + 14)
-  dummy.rotation.set(0, 0, 0)
-  dummy.updateMatrix()
-  railStoolSeats.setMatrixAt(0, dummy.matrix)
-  railStoolLegs.setMatrixAt(0, dummy.matrix)
-  railStoolSeats.instanceMatrix.needsUpdate = true
-  railStoolLegs.instanceMatrix.needsUpdate = true
-  group.add(railStoolSeats, railStoolLegs)
+  const railStools = makeStoolPartMeshes(1)
+  setStoolMatrixAt(railStools, 0, 0, TABLE_MAX_Z + 14, 0)
+  stoolInstanceMatricesNeedUpdate(railStools)
+  group.add(
+    railStools.bases,
+    railStools.columns,
+    railStools.rings,
+    railStools.pans,
+    railStools.cushions,
+    railStools.piping,
+  )
 
   // --- Background gaming tables: blackjack half-moon and craps ---------------------------------
   const bgTableWoodColor = own(makeWoodGrain(MAHOGANY_TINT, MAHOGANY_GRAIN))

@@ -40,9 +40,9 @@ function formatCredits(n: number): string {
   return Math.round(n).toLocaleString('en-US')
 }
 
-/** Creates a fresh session, or restores one from a validated save. */
+/** Creates a fresh session, or restores one from a validated save (clamping a coin value the saved bankroll can no longer cover). */
 export function createSession(save: SessionSave | null): Session {
-  return {
+  const session: Session = {
     phase: 'idle',
     bankroll: save ? save.bankroll : STARTING_BANKROLL,
     coinValue: save ? save.coinValue : 1,
@@ -52,11 +52,21 @@ export function createSession(save: SessionSave | null): Session {
     history: save ? save.history.slice(0, HISTORY_LENGTH) : [],
     stats: save ? { ...save.stats } : freshStats(),
   }
+  return fitBetToBankroll(session)
 }
 
 /** What a spin at the current coin value costs. During free spins, the bonus itself plays at `freeSpins.bet`. */
 export function totalBet(s: Session): number {
   return s.coinValue * LINE_COUNT
+}
+
+/** The largest coin value whose total bet the bankroll can still cover, or null when even the smallest can't. */
+export function largestAffordableCoin(s: Session): CoinValue | null {
+  for (let i = COIN_VALUES.length - 1; i >= 0; i--) {
+    const value = COIN_VALUES[i]!
+    if (value * LINE_COUNT <= s.bankroll) return value
+  }
+  return null
 }
 
 /** Sets the coin value per line. Only allowed outside a spin and outside a free-spin bonus. */
@@ -69,13 +79,29 @@ export function setCoinValue(s: Session, value: CoinValue): Transition {
   }
 }
 
+/**
+ * Whether betUp has a next coin value to go to. False while spinning or during a free-spin bonus;
+ * otherwise true only when a next-higher coin value exists and its total bet still fits the bankroll.
+ */
+export function canBetUp(s: Session): boolean {
+  if (s.phase === 'spinning' || s.freeSpins !== null) return false
+  const next = COIN_VALUES[COIN_VALUES.indexOf(s.coinValue) + 1]
+  return next !== undefined && next * LINE_COUNT <= s.bankroll
+}
+
 function stepCoinValue(s: Session, direction: 1 | -1): Transition {
   if (s.phase === 'spinning' || s.freeSpins !== null) return noChange(s)
+  if (direction === 1 && !canBetUp(s)) return noChange(s)
   const index = COIN_VALUES.indexOf(s.coinValue)
   const nextIndex = Math.min(COIN_VALUES.length - 1, Math.max(0, index + direction))
   return setCoinValue(s, COIN_VALUES[nextIndex]!)
 }
 
+/**
+ * Raises the coin value one step. Outside a free-spin bonus, the total bet (coin value ×
+ * LINE_COUNT) is never allowed to exceed the bankroll, so this refuses when the next value isn't
+ * affordable — see `canBetUp`.
+ */
 export function betUp(s: Session): Transition {
   return stepCoinValue(s, 1)
 }
@@ -84,8 +110,27 @@ export function betDown(s: Session): Transition {
   return stepCoinValue(s, -1)
 }
 
+/**
+ * Jumps straight to the largest coin value the bankroll can afford (never exceeding it), and does
+ * nothing when the player can't afford even the smallest coin.
+ */
 export function maxBet(s: Session): Transition {
-  return setCoinValue(s, COIN_VALUES[COIN_VALUES.length - 1]!)
+  const largest = largestAffordableCoin(s)
+  if (largest === null) return noChange(s)
+  return setCoinValue(s, largest)
+}
+
+/**
+ * Outside a free-spin bonus, clamps the coin value down to the largest the bankroll can still
+ * afford. Leaves the session unchanged during a bonus, when the current bet still fits, or when
+ * the player is broke (no coin value fits at all) — the refill flow takes over in that case.
+ */
+function fitBetToBankroll(s: Session): Session {
+  if (s.freeSpins !== null) return s
+  if (totalBet(s) <= s.bankroll) return s
+  const largest = largestAffordableCoin(s)
+  if (largest === null) return s
+  return { ...s, coinValue: largest, autoplayRemaining: 0 }
 }
 
 /** Sets the number of spins autoplay should still run by itself; 0 turns it off. */
@@ -126,7 +171,11 @@ export function spin(s: Session, seed: number): Transition {
   }
 }
 
-/** Settles the spin in progress: pays out, updates free spins, history and stats. */
+/**
+ * Settles the spin in progress: pays out, updates free spins, history and stats. Outside a
+ * free-spin bonus, also lowers the coin value (and stops autoplay) when the payout leaves the
+ * bankroll unable to cover the current bet, so the total bet never exceeds the bankroll.
+ */
 export function settle(s: Session): Transition {
   if (s.phase !== 'spinning' || s.lastOutcome === null) return noChange(s)
   const outcome = s.lastOutcome
@@ -189,19 +238,22 @@ export function settle(s: Session): Transition {
       break
   }
   if (outcome.totalWin > 0) commands.push({ type: 'sound', name: 'coinPayout' })
+
+  const settled: Session = { ...s, phase: 'result', bankroll, freeSpins, lastOutcome: outcome, history, stats }
+  const fitted = fitBetToBankroll(settled)
+  if (fitted.coinValue !== settled.coinValue) {
+    commands.push({ type: 'message', text: `Bet lowered to ${formatCredits(totalBet(fitted))}`, seconds: FREE_SPINS_MESSAGE_SECONDS })
+  }
   commands.push({ type: 'save' })
 
-  return {
-    session: { ...s, phase: 'result', bankroll, freeSpins, lastOutcome: outcome, history, stats },
-    commands,
-  }
+  return { session: fitted, commands }
 }
 
 /** Restores the starting bankroll once the player is broke. */
 export function refill(s: Session): Transition {
   if (!isBroke(s)) return noChange(s)
   return {
-    session: { ...s, bankroll: STARTING_BANKROLL },
+    session: fitBetToBankroll({ ...s, bankroll: STARTING_BANKROLL }),
     commands: [{ type: 'sound', name: 'refill' }, { type: 'save' }],
   }
 }

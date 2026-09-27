@@ -15,8 +15,10 @@ const CAMERA_KEY = 'slots-royale.camera'
 
 const CAMERA_VIEWS: readonly CameraView[] = ['close', 'wide', 'floor']
 
+/** The view a new player starts in: the whole cabinet, deck buttons and all. */
+export const DEFAULT_CAMERA_VIEW: CameraView = 'wide'
 /** Views from earlier releases map onto their nearest current view, so an old saved choice still loads. */
-const LEGACY_CAMERA_VIEWS: Record<string, CameraView> = { auto: 'close', reels: 'close', cabinet: 'wide' }
+const LEGACY_CAMERA_VIEWS: Record<string, CameraView> = { auto: 'wide', reels: 'close', cabinet: 'wide' }
 
 /** Probes localStorage once and hands back either the real Storage or null. */
 export function safeLocalStorage(): Storage | null {
@@ -96,13 +98,13 @@ export function saveQuickSpin(storage: Storage | null, quickSpin: boolean): void
 }
 
 export function loadCamera(storage: Storage | null): CameraView {
-  if (!storage) return 'close'
+  if (!storage) return DEFAULT_CAMERA_VIEW
   try {
     const raw = storage.getItem(CAMERA_KEY) ?? ''
     if ((CAMERA_VIEWS as readonly string[]).includes(raw)) return raw as CameraView
-    return LEGACY_CAMERA_VIEWS[raw] ?? 'close'
+    return LEGACY_CAMERA_VIEWS[raw] ?? DEFAULT_CAMERA_VIEW
   } catch {
-    return 'close'
+    return DEFAULT_CAMERA_VIEW
   }
 }
 

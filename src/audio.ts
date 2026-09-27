@@ -19,6 +19,13 @@ const REEL_TICK_BUFFER_SECONDS = 2
 const REEL_TICKS_PER_SECOND = 24
 const REEL_TICK_HIGHPASS_HZ = 2200
 
+/** A synthesised convolution reverb glues every voice into a shared "room". */
+const REVERB_SECONDS = 1.6
+const REVERB_DECAY = 3.2
+const REVERB_LOWPASS_HZ = 4200
+const SFX_REVERB_SEND = 0.16
+const MUSIC_REVERB_SEND = 0.28
+
 /** Crowd voices (cheer/groan) are bused through a compressor so overlapping voices never clip. */
 const CROWD_COMPRESSOR_THRESHOLD_DB = -18
 const CROWD_COMPRESSOR_RATIO = 4
@@ -102,25 +109,67 @@ function playNoiseBurst(
   source.stop(now + duration + 0.02)
 }
 
-/** Plays a short staggered run of tones. */
-function playArpeggio(
-  context: AudioContext, out: AudioNode, now: number,
-  freqs: readonly number[], noteDuration: number, peak: number, extras: ToneExtras, stagger: number,
+/** A metallic coin clink: three sine partials over a decaying spectrum, plus a tiny bright tick. */
+function playCoin(context: AudioContext, out: AudioNode, buffer: AudioBuffer, at: number, peak: number): void {
+  const f = 3100 + Math.random() * 1500
+  const partials: readonly [freq: number, duration: number, level: number][] = [
+    [f, 0.09, 1],
+    [f * 1.483, 0.06, 0.55],
+    [f * 2.617, 0.04, 0.3],
+  ]
+  for (const [freq, duration, level] of partials) {
+    playTone(context, out, at, freq, duration, peak * level, { type: 'sine', attack: 0.001 })
+  }
+  playNoiseBurst(context, out, buffer, at, 5000, 3, 0.006, peak * 0.4, 0.0005)
+}
+
+/** A slot bell: a near-harmonic partial stack whose higher partials decay twice as fast as the fundamental. */
+function playBell(context: AudioContext, out: AudioNode, at: number, freq: number, duration: number, peak: number): void {
+  const partials: readonly [ratio: number, level: number][] = [
+    [1, 1],
+    [2.0, 0.5],
+    [3.01, 0.25],
+    [4.2, 0.12],
+  ]
+  for (const [ratio, level] of partials) {
+    const partialDuration = ratio === 1 ? duration : duration * 0.5
+    playTone(context, out, at, freq * ratio, partialDuration, peak * level, { type: 'sine', attack: 0.002 })
+  }
+}
+
+/** A cascade of random coin clinks spread across `duration`; count (unless overridden) and peak scale with `amount`. */
+function playCoinCascade(
+  context: AudioContext, out: AudioNode, buffer: AudioBuffer, now: number, duration: number, amount: number, count?: number,
 ): void {
-  freqs.forEach((freq, i) => playTone(context, out, now + i * stagger, freq, noteDuration, peak, extras))
+  const clinkCount = count ?? Math.round(8 + 40 * clamp01(amount))
+  for (let i = 0; i < clinkCount; i++) {
+    const t = now + Math.random() * duration
+    playCoin(context, out, buffer, t, 0.05 + Math.random() * 0.025)
+  }
+}
+
+/** A short sawtooth chord stab through a shared lowpass: the thump under a big win's first bell. */
+function playChordStab(context: AudioContext, out: AudioNode, now: number, freqs: readonly number[], duration: number, peak: number): void {
+  const lowpass = context.createBiquadFilter()
+  lowpass.type = 'lowpass'
+  lowpass.frequency.value = 1800
+  lowpass.connect(out)
+  for (const freq of freqs) {
+    playTone(context, lowpass, now, freq, duration, peak, { type: 'sawtooth', attack: 0.004 })
+  }
+  // The shared lowpass outlives the notes briefly, then disconnects itself.
+  setTimeout(() => lowpass.disconnect(), (duration + 0.05) * 1000)
 }
 
 // ---------------------------------------------------------------------------------------------
 // One voice per SoundName. The `Record` below makes the compiler check every name has a voice.
 // ---------------------------------------------------------------------------------------------
 
-/** A coin drop: two metallic clinks, the second a touch softer and lower. */
+/** A coin drop: two metallic coin clinks, the second a touch softer. */
 function voiceCoinIn(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = 0.7 + 0.3 * clamp01(intensity)
-  playNoiseBurst(context, out, buffer, now, 3400, 6, 0.05, 0.06 * amount, 0.001)
-  playTone(context, out, now, 2200, 0.12, 0.05 * amount, { type: 'triangle', endFreq: 1400, attack: 0.001 })
-  playNoiseBurst(context, out, buffer, now + 0.09, 3000, 6, 0.045, 0.05 * amount, 0.001)
-  playTone(context, out, now + 0.09, 1900, 0.1, 0.04 * amount, { type: 'triangle', endFreq: 1200, attack: 0.001 })
+  playCoin(context, out, buffer, now, 0.09 * amount)
+  playCoin(context, out, buffer, now + 0.09, 0.075 * amount)
 }
 
 /** A soft click (bet stepping down) plus a short blip (the new value). */
@@ -130,7 +179,7 @@ function voiceBetChange(context: AudioContext, out: GainNode, buffer: AudioBuffe
   playTone(context, out, now + 0.01, 900, 0.07, 0.04 * amount, { type: 'sine', endFreq: 1200, attack: 0.003 })
 }
 
-/** A ratchet pull: six rapid ticks as the lever rises, then a spring "thunk" on the return. */
+/** A ratchet pull: six rapid ticks as the lever rises, a spring "thunk" on the return, then the spring settling. */
 function voiceLever(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = 0.7 + 0.3 * clamp01(intensity)
   for (let i = 0; i < 6; i++) {
@@ -139,6 +188,37 @@ function voiceLever(context: AudioContext, out: GainNode, buffer: AudioBuffer, n
   }
   playTone(context, out, now + 0.32, 180, 0.22, 0.08 * amount, { type: 'sine', endFreq: 70, attack: 0.004 })
   playNoiseBurst(context, out, buffer, now + 0.32, 700, 2.5, 0.05, 0.05 * amount, 0.002)
+
+  // A spring settling back, with a slight detune vibrato (built inline: `playTone` has no detune hook).
+  const springStart = now + 0.32
+  const spring = context.createOscillator()
+  spring.type = 'sine'
+  spring.frequency.setValueAtTime(320, springStart)
+  spring.frequency.exponentialRampToValueAtTime(240, springStart + 0.28)
+  const vibrato = context.createOscillator()
+  vibrato.type = 'sine'
+  vibrato.frequency.value = 18
+  const vibratoDepth = context.createGain()
+  vibratoDepth.gain.value = 25
+  vibrato.connect(vibratoDepth)
+  vibratoDepth.connect(spring.detune)
+  const springGain = context.createGain()
+  scheduleEnvelope(springGain, springStart, 0.006, 0.04, 0.28)
+  spring.connect(springGain)
+  springGain.connect(out)
+  const springStop = springStart + 0.3
+  spring.start(springStart)
+  vibrato.start(springStart)
+  spring.stop(springStop)
+  vibrato.stop(springStop)
+  spring.onended = () => {
+    spring.disconnect()
+    springGain.disconnect()
+  }
+  vibrato.onended = () => {
+    vibrato.disconnect()
+    vibratoDepth.disconnect()
+  }
 }
 
 /** A rising whoosh (a bandpassed noise sweep) capped with a bright "ding". */
@@ -166,15 +246,16 @@ function voiceSpinStart(context: AudioContext, out: GainNode, buffer: AudioBuffe
   playTone(context, out, now + 0.26, 1400, 0.18, 0.08 * amount, { type: 'sine', endFreq: 1900, attack: 0.003 })
 }
 
-/** A sharp mechanical clack with a short low thump; `intensity` (reel index / 4) varies the pitch. */
+/** A sharp mechanical clack, a wooden-bodied "tock", and a low thump; `intensity` (reel index / 4) varies the pitch. */
 function voiceReelStop(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = clamp01(intensity)
   const pitch = 1 + (amount - 0.5) * 0.4
   playNoiseBurst(context, out, buffer, now, 2800 * pitch, 5, 0.02, 0.09, 0.0006)
-  playTone(context, out, now + 0.004, 160 * pitch, 0.09, 0.06, { type: 'sine', endFreq: 70, attack: 0.002 })
+  playTone(context, out, now + 0.004, 210 * pitch, 0.07, 0.07, { type: 'sine', endFreq: 85 * pitch })
+  playNoiseBurst(context, out, buffer, now + 0.004, 480 * pitch, 8, 0.06, 0.05)
 }
 
-/** A rising drum-roll tremolo over about a second: bursts accelerate and climb in pitch. */
+/** A rising drum-roll tremolo over about a second, with two low heartbeat thumps beneath it. */
 function voiceAnticipation(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = 0.7 + 0.3 * clamp01(intensity)
   const duration = 1
@@ -186,46 +267,39 @@ function voiceAnticipation(context: AudioContext, out: GainNode, buffer: AudioBu
     playNoiseBurst(context, out, buffer, t, freq, 4, 0.02, 0.045 * amount * (0.5 + 0.5 * progress), 0.001)
   }
   playTone(context, out, now, 90, duration, 0.05 * amount, { type: 'sawtooth', endFreq: 220, attack: 0.05 })
+  playTone(context, out, now + 0.35, 70, 0.16, 0.07, { type: 'sine', endFreq: 40 })
+  playTone(context, out, now + 0.75, 70, 0.16, 0.07, { type: 'sine', endFreq: 40 })
 }
 
-/** A three-note ascending chime for a small win. */
+/** A three-bell chime for a small win, in the music's key of F major. */
 function voiceWinSmall(context: AudioContext, out: GainNode, _buffer: AudioBuffer, now: number, intensity: number): void {
-  const peak = 0.11 * (0.8 + 0.2 * clamp01(intensity))
-  playArpeggio(context, out, now, [523.25, 659.25, 783.99], 0.16, peak, { type: 'triangle', attack: 0.008 }, 0.1)
+  const peak = 0.1 * (0.8 + 0.2 * clamp01(intensity))
+  const notes = [698.46, 880, 1046.5]
+  notes.forEach((freq, i) => playBell(context, out, now + i * 0.11, freq, 0.5, peak))
 }
 
-/** A six-note fanfare with a sparkle of noise bursts trailing it. */
+/** A six-bell tree over a sawtooth chord stab, closing with a scatter of coins. */
 function voiceWinBig(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
-  const peak = 0.13 * (0.85 + 0.15 * clamp01(intensity))
-  playArpeggio(
-    context, out, now, [392, 523.25, 659.25, 783.99, 987.77, 1046.5], 0.12, peak,
-    { type: 'sawtooth', attack: 0.005 }, 0.07,
-  )
-  for (let i = 0; i < 6; i++) {
-    const t = now + 0.1 + i * 0.05 + Math.random() * 0.03
-    playNoiseBurst(context, out, buffer, t, 3200 + Math.random() * 2200, 7, 0.03, peak * 0.35, 0.001)
-  }
+  const peak = 0.11 * (0.85 + 0.15 * clamp01(intensity))
+  const notes = [698.46, 880, 1046.5, 1396.91, 1760, 2093]
+  notes.forEach((freq, i) => playBell(context, out, now + i * 0.075, freq, 0.6, peak))
+  playChordStab(context, out, now, [349.23, 440, 523.25], 0.35, 0.05)
+  playCoinCascade(context, out, buffer, now + 0.15, 0.8, 0.4)
 }
 
-/** A longer fanfare than `winBig`, closing with a few detuned bell tones. */
+/** Two bell trees (the second an octave up) over an F-to-C chord progression, closing with a longer coin cascade. */
 function voiceWinMega(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
-  const peak = 0.15 * (0.85 + 0.15 * clamp01(intensity))
-  const notes = [392, 523.25, 659.25, 783.99, 987.77, 1046.5, 1318.51, 1568]
-  playArpeggio(context, out, now, notes, 0.14, peak, { type: 'sawtooth', attack: 0.005 }, 0.065)
-  const bellStart = now + notes.length * 0.065
-  const bellNotes = [1046.5, 1318.51, 1568, 2093]
-  bellNotes.forEach((freq, i) => {
-    const t = bellStart + i * 0.09
-    playTone(context, out, t, freq, 0.6, peak * 0.5, { type: 'sine', attack: 0.002 })
-    playTone(context, out, t, freq * 2.01, 0.4, peak * 0.2, { type: 'sine', attack: 0.002 })
-  })
-  for (let i = 0; i < 10; i++) {
-    const t = now + 0.1 + i * 0.06 + Math.random() * 0.04
-    playNoiseBurst(context, out, buffer, t, 3200 + Math.random() * 2600, 7, 0.03, peak * 0.3, 0.001)
-  }
+  const peak = 0.11 * (0.85 + 0.15 * clamp01(intensity))
+  const notes = [698.46, 880, 1046.5, 1396.91, 1760, 2093]
+  notes.forEach((freq, i) => playBell(context, out, now + i * 0.075, freq, 0.6, peak))
+  const secondTreeStart = now + notes.length * 0.075
+  notes.forEach((freq, i) => playBell(context, out, secondTreeStart + i * 0.05, freq * 2, 0.6, peak))
+  playChordStab(context, out, now, [349.23, 440, 523.25], 0.35, 0.05)
+  playChordStab(context, out, now + 0.5, [523.25, 659.25, 783.99], 0.35, 0.05)
+  playCoinCascade(context, out, buffer, now + 0.15, 1.6, 0.6)
 }
 
-/** The jackpot: a siren sweep, a run of bells, and a three-second cascade of coins. */
+/** The jackpot: a siren sweep, a hammered mechanical bell, the bell tree, and a three-second cascade of sixty coins. */
 function voiceJackpot(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = 0.85 + 0.15 * clamp01(intensity)
   const duration = 3
@@ -239,7 +313,7 @@ function voiceJackpot(context: AudioContext, out: GainNode, buffer: AudioBuffer,
     osc.frequency.exponentialRampToValueAtTime(1100, t + len * 0.5)
     osc.frequency.exponentialRampToValueAtTime(500, t + len)
     const gain = context.createGain()
-    scheduleEnvelope(gain, t, 0.05, 0.09 * amount, len)
+    scheduleEnvelope(gain, t, 0.05, 0.07 * amount, len)
     osc.connect(gain)
     gain.connect(out)
     osc.start(t)
@@ -249,28 +323,25 @@ function voiceJackpot(context: AudioContext, out: GainNode, buffer: AudioBuffer,
       gain.disconnect()
     }
   }
-  const bellNotes = [1046.5, 1318.51, 1568, 2093, 2637]
-  bellNotes.forEach((freq, i) => {
-    const t = now + 0.2 + i * 0.18
-    playTone(context, out, t, freq, 0.8, 0.09 * amount, { type: 'sine', attack: 0.002 })
-    playTone(context, out, t, freq * 2.01, 0.5, 0.035 * amount, { type: 'sine', attack: 0.002 })
-  })
-  const coinCount = 40
-  for (let i = 0; i < coinCount; i++) {
-    const t = now + 0.3 + Math.random() * (duration - 0.4)
-    const freq = 2600 + Math.random() * 1400
-    playNoiseBurst(context, out, buffer, t, freq, 5.5, 0.03, 0.05 * amount * (0.5 + Math.random() * 0.5), 0.001)
+  const hammerInterval = 0.09
+  const hammerCount = Math.round(duration / hammerInterval)
+  for (let i = 0; i < hammerCount; i++) {
+    playBell(context, out, now + i * hammerInterval, 2093, 0.25, 0.06)
   }
+  const bellTreeStart = now + 0.2
+  const bellTreeNotes = [698.46, 880, 1046.5, 1396.91, 1760, 2093]
+  bellTreeNotes.forEach((freq, i) => playBell(context, out, bellTreeStart + i * 0.075, freq, 0.6, 0.11 * amount))
+  playCoinCascade(context, out, buffer, now + 0.3, 2.6, amount, 60)
 }
 
-/** A magical ascending glissando into a low, slightly inharmonic gong. */
+/** A magical ascending bell glissando into a low, slightly inharmonic gong. */
 function voiceFreeSpins(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = 0.8 + 0.2 * clamp01(intensity)
   const noteCount = 14
   for (let i = 0; i < noteCount; i++) {
     const t = now + i * 0.045
     const freq = 440 * Math.pow(2, i / 12)
-    playTone(context, out, t, freq, 0.2, 0.05 * amount, { type: 'triangle', attack: 0.004 })
+    playBell(context, out, t, freq, 0.3, 0.05 * amount)
   }
   const gongStart = now + noteCount * 0.045
   playTone(context, out, gongStart, 110, 1.6, 0.09 * amount, { type: 'sine', attack: 0.01 })
@@ -308,23 +379,17 @@ function voiceFreeSpinStart(context: AudioContext, out: GainNode, buffer: AudioB
 function voiceCoinPayout(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = clamp01(intensity)
   const duration = 0.4 + 2.1 * amount
-  const clinkCount = Math.round(8 + 40 * amount)
-  for (let i = 0; i < clinkCount; i++) {
-    const t = now + Math.random() * duration
-    const freq = 2600 + Math.random() * 1600
-    playNoiseBurst(context, out, buffer, t, freq, 5.5, 0.03, 0.04 + Math.random() * 0.03, 0.001)
-    playTone(context, out, t, freq * 0.6, 0.1, 0.02, { type: 'triangle', endFreq: freq * 0.35, attack: 0.001 })
-  }
+  playCoinCascade(context, out, buffer, now, duration, amount)
 }
 
-/** A refill's coin cascade: a short run of ascending, bright tones each paired with a clink. */
+/** A refill's coin cascade: a short run of ascending, bright tones each paired with a coin clink. */
 function voiceRefill(context: AudioContext, out: GainNode, buffer: AudioBuffer, now: number, intensity: number): void {
   const amount = 0.8 + 0.2 * clamp01(intensity)
   const notes = [1046.5, 1318.51, 1567.98, 2093, 1567.98, 2093]
   for (let i = 0; i < notes.length; i++) {
     const t = now + i * 0.06
     playTone(context, out, t, notes[i]!, 0.14, 0.06 * amount, { type: 'triangle', attack: 0.003 })
-    playNoiseBurst(context, out, buffer, t, 4000, 6, 0.015, 0.02 * amount, 0.001)
+    playCoin(context, out, buffer, t, 0.05 * amount)
   }
 }
 
@@ -624,18 +689,21 @@ const VOICES: Record<SoundName, Voice> = {
 
 /**
  * The reel-whirr loop. A band-passed noise layer (`whirr`) climbs in centre frequency with pitch,
- * and a looped buffer of tiny ticks (`tick`) plays alongside, faster and louder as the reels spin up.
+ * a slow LFO (`flutter`) adds a slight tremolo to it, and a looped buffer of tiny ticks (`tick`)
+ * plays alongside, faster and louder as the reels spin up.
  */
 interface ReelNodes {
   source: AudioBufferSourceNode
   whirrFilter: BiquadFilterNode
   whirrGain: GainNode
+  flutter: OscillatorNode
+  flutterDepth: GainNode
   tick: AudioBufferSourceNode
   tickFilter: BiquadFilterNode
   tickGain: GainNode
 }
 
-/** The crowd bus that `voiceCheer`/`voiceGroan` play into: GainNode -> DynamicsCompressorNode -> master. */
+/** The crowd bus that `voiceCheer`/`voiceGroan` play into: GainNode -> DynamicsCompressorNode -> sfxBus. */
 interface CrowdBusNodes {
   input: GainNode
   compressor: DynamicsCompressorNode
@@ -644,13 +712,23 @@ interface CrowdBusNodes {
 /** Continuous casino room tone: a lounge-music bed (eased by `setReels`) plus a scheduled slot jingle. */
 interface AmbienceNodes {
   musicBus: GainNode
+  musicSend: GainNode
   music: CasinoMusic
   jingleTimeout: ReturnType<typeof setTimeout> | null
+}
+
+/** The shared room reverb: a convolver fed by the sfx/music sends, returning into master. */
+interface SpaceNodes {
+  reverb: ConvolverNode
+  reverbReturn: GainNode
 }
 
 export function createAudio(): GameAudio {
   let ctx: AudioContext | null = null
   let master: GainNode | null = null
+  let sfxBus: GainNode | null = null
+  let sfxSend: GainNode | null = null
+  let space: SpaceNodes | null = null
   let noiseBuffer: AudioBuffer | null = null
   let reels: ReelNodes | null = null
   let crowdBus: CrowdBusNodes | null = null
@@ -658,6 +736,28 @@ export function createAudio(): GameAudio {
   let unlocked = false
   let muted = false
   const lastPlayedAt = new Map<SoundName, number>()
+
+  /**
+   * Builds the room reverb's stereo impulse response: white noise shaped by an exponential decay
+   * envelope, smoothed sample-by-sample toward a lowpass so high frequencies die out first.
+   */
+  function createReverbImpulse(context: AudioContext): AudioBuffer {
+    const length = Math.floor(context.sampleRate * REVERB_SECONDS)
+    const buffer = context.createBuffer(2, length, context.sampleRate)
+    const smoothing = clamp01(1 - Math.exp((-2 * Math.PI * REVERB_LOWPASS_HZ) / context.sampleRate))
+    for (let channel = 0; channel < 2; channel++) {
+      const data = buffer.getChannelData(channel)
+      let smoothed = 0
+      for (let i = 0; i < length; i++) {
+        const t = i / context.sampleRate
+        const envelope = Math.pow(1 - t / REVERB_SECONDS, REVERB_DECAY)
+        const sample = (Math.random() * 2 - 1) * envelope
+        smoothed += (sample - smoothed) * smoothing
+        data[i] = smoothed
+      }
+    }
+    return buffer
+  }
 
   function ensureContext(): boolean {
     if (ctx && master) return true
@@ -672,12 +772,34 @@ export function createAudio(): GameAudio {
       const gain = context.createGain()
       gain.gain.value = muted ? 0 : MASTER_GAIN
       gain.connect(context.destination)
+
+      const reverb = context.createConvolver()
+      reverb.buffer = createReverbImpulse(context)
+      const reverbReturn = context.createGain()
+      reverbReturn.gain.value = 1
+      reverb.connect(reverbReturn)
+      reverbReturn.connect(gain)
+
+      const sfx = context.createGain()
+      sfx.gain.value = 1
+      sfx.connect(gain)
+      const sfxSendGain = context.createGain()
+      sfxSendGain.gain.value = SFX_REVERB_SEND
+      sfx.connect(sfxSendGain)
+      sfxSendGain.connect(reverb)
+
       ctx = context
       master = gain
+      space = { reverb, reverbReturn }
+      sfxBus = sfx
+      sfxSend = sfxSendGain
       return true
     } catch {
       ctx = null
       master = null
+      space = null
+      sfxBus = null
+      sfxSend = null
       return false
     }
   }
@@ -723,7 +845,7 @@ export function createAudio(): GameAudio {
       osc.type = i % 2 === 0 ? 'triangle' : 'sine'
       osc.frequency.value = freq
       const gain = context.createGain()
-      scheduleEnvelope(gain, t, 0.01, 0.015, 0.18)
+      scheduleEnvelope(gain, t, 0.01, 0.012, 0.18)
       osc.connect(gain)
       gain.connect(lowpass)
       osc.start(t)
@@ -742,7 +864,7 @@ export function createAudio(): GameAudio {
     const delay = AMBIENCE_JINGLE_MIN_DELAY_MS + Math.random() * (AMBIENCE_JINGLE_MAX_DELAY_MS - AMBIENCE_JINGLE_MIN_DELAY_MS)
     ambience.jingleTimeout = setTimeout(() => {
       try {
-        if (ctx && master && !muted && ctx.state === 'running') playJingle(ctx, master)
+        if (ctx && sfxBus && !muted && ctx.state === 'running') playJingle(ctx, sfxBus)
       } catch { /* no-op: audio is optional */ }
       scheduleNextJingle()
     }, delay)
@@ -750,15 +872,19 @@ export function createAudio(): GameAudio {
 
   /** Starts the background lounge music (plus its jingle schedule) once, on the first unlock. */
   function startAmbience(): void {
-    if (ambience || !ctx || !master) return
+    if (ambience || !ctx || !master || !space) return
     try {
       const context = ctx
       const out = master
       const musicBus = context.createGain()
       musicBus.gain.value = 1
       musicBus.connect(out)
+      const musicSend = context.createGain()
+      musicSend.gain.value = MUSIC_REVERB_SEND
+      musicBus.connect(musicSend)
+      musicSend.connect(space.reverb)
       const music = startCasinoMusic(context, musicBus)
-      ambience = { musicBus, music, jingleTimeout: null }
+      ambience = { musicBus, musicSend, music, jingleTimeout: null }
       scheduleNextJingle()
     } catch { /* no-op: audio is optional */ }
   }
@@ -785,14 +911,14 @@ export function createAudio(): GameAudio {
   }
 
   function canPlay(): boolean {
-    return unlocked && !muted && ctx !== null && master !== null
+    return unlocked && !muted && ctx !== null && sfxBus !== null
   }
 
-  /** Runs `action` with the live context/master gain when playable, and never throws. */
+  /** Runs `action` with the live context/sfx bus when playable, and never throws. */
   function withAudio(action: (context: AudioContext, out: GainNode) => void): void {
-    if (!canPlay() || !ctx || !master) return
+    if (!canPlay() || !ctx || !sfxBus) return
     try {
-      action(ctx, master)
+      action(ctx, sfxBus)
     } catch { /* no-op: audio is optional */ }
   }
 
@@ -843,6 +969,15 @@ export function createAudio(): GameAudio {
     whirrFilter.connect(whirrGain)
     whirrGain.connect(out)
 
+    // A slight tremolo on the whirr, on top of its base level; sped up as the reels spin (see `setReels`).
+    const flutter = context.createOscillator()
+    flutter.type = 'sine'
+    flutter.frequency.value = 7
+    const flutterDepth = context.createGain()
+    flutterDepth.gain.value = 0.25
+    flutter.connect(flutterDepth)
+    flutterDepth.connect(whirrGain.gain)
+
     const tick = context.createBufferSource()
     tick.buffer = createReelTickBuffer(context)
     tick.loop = true
@@ -857,8 +992,9 @@ export function createAudio(): GameAudio {
 
     source.start(now)
     tick.start(now, Math.random() * REEL_TICK_BUFFER_SECONDS)
+    flutter.start(now)
 
-    reels = { source, whirrFilter, whirrGain, tick, tickFilter, tickGain }
+    reels = { source, whirrFilter, whirrGain, flutter, flutterDepth, tick, tickFilter, tickGain }
     return reels
   }
 
@@ -871,6 +1007,7 @@ export function createAudio(): GameAudio {
       const freq = REEL_WHIRR_MIN_FREQ * Math.pow(REEL_WHIRR_MAX_FREQ / REEL_WHIRR_MIN_FREQ, p)
       nodes.whirrGain.gain.setTargetAtTime(amount * 0.5, now, REEL_TIME_CONSTANT)
       nodes.whirrFilter.frequency.setTargetAtTime(freq, now, REEL_TIME_CONSTANT)
+      nodes.flutter.frequency.setTargetAtTime(6 + 9 * p, now, REEL_TIME_CONSTANT)
       // The ticks stand out more as the reels slow toward a stop.
       nodes.tickGain.gain.setTargetAtTime(amount * 0.16 * (1.3 - 0.5 * p), now, REEL_TIME_CONSTANT)
       nodes.tick.playbackRate.setTargetAtTime(0.35 + 1.15 * p, now, REEL_TIME_CONSTANT)
@@ -886,19 +1023,27 @@ export function createAudio(): GameAudio {
       if (reels) {
         reels.source.stop()
         reels.tick.stop()
-        for (const node of [reels.source, reels.whirrFilter, reels.whirrGain, reels.tick, reels.tickFilter, reels.tickGain]) {
+        reels.flutter.stop()
+        for (const node of [reels.source, reels.whirrFilter, reels.whirrGain, reels.flutter, reels.flutterDepth, reels.tick, reels.tickFilter, reels.tickGain]) {
           node.disconnect()
         }
       }
       if (ambience) {
         if (ambience.jingleTimeout !== null) clearTimeout(ambience.jingleTimeout)
         ambience.music.stop()
+        ambience.musicSend.disconnect()
         ambience.musicBus.disconnect()
       }
       if (crowdBus) {
         crowdBus.input.disconnect()
         crowdBus.compressor.disconnect()
       }
+      if (space) {
+        space.reverb.disconnect()
+        space.reverbReturn.disconnect()
+      }
+      sfxSend?.disconnect()
+      sfxBus?.disconnect()
       master?.disconnect()
       void ctx?.close()
     } catch { /* no-op: audio is optional */ } finally {
@@ -906,6 +1051,9 @@ export function createAudio(): GameAudio {
       ambience = null
       crowdBus = null
       noiseBuffer = null
+      space = null
+      sfxBus = null
+      sfxSend = null
       ctx = null
       master = null
       unlocked = false

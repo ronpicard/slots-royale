@@ -13,7 +13,7 @@ It plays for credits only. There is no real money, no purchases, and nothing to 
 - Five sevens on a line is the jackpot: 1000 times the coin value.
 - `MAX BET` jumps straight to the top coin value. `AUTO` spins a set number of times by itself and stops if you can no longer afford the next one.
 - You start with 1,000 credits, and your credits and history are kept in your browser. If you run out, the machine offers a refill.
-- The camera sits close on the reel window by default and stays there from spin to spin. The camera button or `C` cycles it through three fixed views: the reel window, the whole cabinet, and along the row of machines on the casino floor.
+- The camera opens close on the reel window, with the gold bezel, the payline plaques and the top of the button deck in frame, and stays there from spin to spin. The camera button or `C` cycles it through three fixed views: close, wide (the whole cabinet and its marquee), and along the row of machines on the casino floor.
 - Quick spin runs the reels at double speed. The outcome of a spin does not change.
 - While the menu is up, the machine plays itself.
 
@@ -81,13 +81,13 @@ The menu offers mute, quick spin (double-speed reels), the camera view, and a re
 
 Requires Node >= 22.12.
 
-Everything under `src/game/` is framework-free — no DOM, no three.js, and no non-deterministic calls like `Math.random` or `Date` — so `npm test` runs directly in Node without spinning up a browser.
+Everything under `src/game/` is framework-free — no DOM, no three.js, and no non-deterministic calls like `Math.random` or `Date` — so `npm test` runs directly in Node without spinning up a browser. The settings storage under `src/ui/` is tested the same way against a fake `Storage`.
 
 | Command | Purpose |
 | --- | --- |
 | `npm install` | Install dependencies |
 | `npm run dev` | Start the dev server |
-| `npm test` | Run the reels, paylines, paytable, session, crowd and autoplay tests |
+| `npm test` | Run the reels, paylines, paytable, session, crowd, autoplay and settings-storage tests |
 | `npm run simulate` | Simulate spins headlessly and report the return to player |
 | `npm run build` | Type-check and build for production |
 | `npm run preview` | Preview the production build locally |

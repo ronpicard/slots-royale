@@ -66,11 +66,11 @@ export interface EngineEvents {
 export type EngineMode = 'play' | 'attract'
 
 /**
- * 'auto' follows the game: the whole cabinet between spins, close on the reel window while
- * they spin, and a pull-back for a big win. 'reels' frames the reel window, 'cabinet' stands back
- * to see the whole machine and its topper, and 'floor' looks along the row of machines.
+ * 'close' frames the reel window with its bezel and the top of the deck, 'wide' stands back to
+ * see the whole machine and its topper, and 'floor' looks along the row of machines. While the
+ * attract mode runs behind the menu the camera picks 'close' or 'wide' by itself.
  */
-export type CameraView = 'auto' | 'reels' | 'cabinet' | 'floor'
+export type CameraView = 'close' | 'wide' | 'floor'
 
 /** Screen space covered by UI, in CSS pixels, measured in from each edge of the canvas. */
 export interface ViewInsets {

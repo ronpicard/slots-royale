@@ -27,16 +27,21 @@ const MAX_STRIP_FOR_FULL_CELL = 32
 const TALL_CELL_HEIGHT = 256
 const SHORT_CELL_HEIGHT = 200
 
-const BACKGROUND = '#0d1224'
+const BACKGROUND = '#f7f1e3'
+const BACKGROUND_EDGE = '#e6dcc3'
+const TILE_BORDER = '#c9a54a'
 const GOLD = '#d4af37'
-const SEVEN_RED = '#e23c4f'
-const CYAN = '#6fd6e8'
-const YELLOW = '#f4d03f'
-const ORANGE = '#f39c12'
-const PLUM = '#7b3fa0'
-const WILD_PURPLE = '#b98cf2'
-const SCATTER_GOLD = '#f3d27a'
-const LEAF_GREEN = '#3f9142'
+const SEVEN_RED = '#c8102e'
+const CYAN = '#2ea8c9'
+const YELLOW = '#f2c230'
+const ORANGE = '#ee8b1c'
+const PLUM = '#6d2f92'
+const WILD_PURPLE = '#7a3fb8'
+const SCATTER_GOLD = '#d4a53a'
+const LEAF_GREEN = '#2f7a35'
+/** Dark hairline outline every icon gets so it still reads against the cream tile. */
+const ICON_OUTLINE = 'rgba(43, 29, 5, 0.55)'
+const ICON_OUTLINE_WIDTH = 5
 
 /** Accent colour per symbol, for HUD swatches and payline glows. */
 export const SYMBOL_COLOR: Record<SymbolId, string> = {
@@ -68,15 +73,26 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
 
 function drawBackground(ctx: CanvasRenderingContext2D, size: number): void {
   const r = size * 0.12
-  ctx.fillStyle = BACKGROUND
+  const backdrop = ctx.createLinearGradient(0, 0, 0, size)
+  backdrop.addColorStop(0, BACKGROUND)
+  backdrop.addColorStop(1, BACKGROUND_EDGE)
+  ctx.fillStyle = backdrop
   roundRectPath(ctx, 3, 3, size - 6, size - 6, r)
   ctx.fill()
   const vignette = ctx.createRadialGradient(size / 2, size / 2, size * 0.08, size / 2, size / 2, size * 0.62)
-  vignette.addColorStop(0, 'rgba(255,255,255,0.08)')
-  vignette.addColorStop(1, 'rgba(0,0,0,0.4)')
+  vignette.addColorStop(0, 'rgba(255,255,255,0.10)')
+  vignette.addColorStop(1, 'rgba(0,0,0,0.12)')
   ctx.fillStyle = vignette
   roundRectPath(ctx, 3, 3, size - 6, size - 6, r)
   ctx.fill()
+  ctx.lineWidth = 4
+  ctx.strokeStyle = TILE_BORDER
+  roundRectPath(ctx, 6, 6, size - 12, size - 12, r)
+  ctx.stroke()
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = 'rgba(201,165,74,0.55)'
+  roundRectPath(ctx, 12, 12, size - 24, size - 24, r)
+  ctx.stroke()
 }
 
 // -------------------------------------------------------------------------------------------
@@ -91,6 +107,9 @@ function drawSeven(ctx: CanvasRenderingContext2D, size: number): void {
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.lineJoin = 'round'
+  ctx.lineWidth = size * 0.055 + ICON_OUTLINE_WIDTH * 2
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.strokeText('7', cx, cy)
   ctx.lineWidth = size * 0.055
   ctx.strokeStyle = GOLD
   ctx.strokeText('7', cx, cy)
@@ -120,7 +139,7 @@ function drawBar(ctx: CanvasRenderingContext2D, size: number): void {
     ctx.fill()
     ctx.stroke()
   }
-  ctx.fillStyle = GOLD
+  ctx.fillStyle = BACKGROUND
   ctx.font = `700 ${size * 0.15}px Arial, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -134,16 +153,20 @@ function drawBell(ctx: CanvasRenderingContext2D, size: number): void {
   const r = size * 0.26
   ctx.save()
   ctx.fillStyle = GOLD
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.lineWidth = ICON_OUTLINE_WIDTH
   ctx.beginPath()
   ctx.arc(cx, cy, r, Math.PI, 0, false)
   ctx.lineTo(cx + r * 1.15, cy + r * 0.9)
   ctx.quadraticCurveTo(cx, cy + r * 1.2, cx - r * 1.15, cy + r * 0.9)
   ctx.closePath()
   ctx.fill()
+  ctx.stroke()
   ctx.beginPath()
   ctx.ellipse(cx, cy + r * 0.92, r * 1.2, r * 0.22, 0, 0, Math.PI * 2)
   ctx.fillStyle = '#f1c869'
   ctx.fill()
+  ctx.stroke()
   ctx.beginPath()
   ctx.arc(cx, cy + r * 1.32, r * 0.16, 0, Math.PI * 2)
   ctx.fillStyle = '#2b1d05'
@@ -156,6 +179,7 @@ function drawBell(ctx: CanvasRenderingContext2D, size: number): void {
   ctx.arc(cx, cy - r * 1.05, r * 0.18, 0, Math.PI * 2)
   ctx.fillStyle = GOLD
   ctx.fill()
+  ctx.stroke()
   ctx.restore()
 }
 
@@ -179,7 +203,7 @@ function drawDiamond(ctx: CanvasRenderingContext2D, size: number): void {
   ctx.lineTo(cx - crownHalf, girdleY)
   ctx.closePath()
   const crownGrad = ctx.createLinearGradient(cx, tableY, cx, girdleY)
-  crownGrad.addColorStop(0, '#bdf3fa')
+  crownGrad.addColorStop(0, '#a9e9f5')
   crownGrad.addColorStop(1, CYAN)
   ctx.fillStyle = crownGrad
   ctx.fill()
@@ -204,8 +228,8 @@ function drawDiamond(ctx: CanvasRenderingContext2D, size: number): void {
   ctx.lineTo(cx, pavilionTipY)
   ctx.closePath()
   const pavilionGrad = ctx.createLinearGradient(cx, girdleY, cx, pavilionTipY)
-  pavilionGrad.addColorStop(0, '#8fe6f2')
-  pavilionGrad.addColorStop(1, '#2f8fa0')
+  pavilionGrad.addColorStop(0, '#5cc7dd')
+  pavilionGrad.addColorStop(1, '#1d6f85')
   ctx.fillStyle = pavilionGrad
   ctx.strokeStyle = 'rgba(20,70,80,0.55)'
   ctx.lineWidth = size * 0.012
@@ -264,6 +288,9 @@ function drawCherry(ctx: CanvasRenderingContext2D, size: number): void {
   ctx.ellipse(cx + size * 0.07, stemTopY + size * 0.02, size * 0.09, size * 0.045, -0.5, 0, Math.PI * 2)
   ctx.fillStyle = LEAF_GREEN
   ctx.fill()
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.lineWidth = ICON_OUTLINE_WIDTH
+  ctx.stroke()
   for (const [x, y] of [
     [leftX, cherryY],
     [rightX, cherryY],
@@ -275,6 +302,7 @@ function drawCherry(ctx: CanvasRenderingContext2D, size: number): void {
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fillStyle = grad
     ctx.fill()
+    ctx.stroke()
   }
   ctx.restore()
 }
@@ -292,6 +320,9 @@ function drawLemon(ctx: CanvasRenderingContext2D, size: number): void {
   ctx.beginPath()
   ctx.ellipse(0, 0, size * 0.3, size * 0.22, 0, 0, Math.PI * 2)
   ctx.fill()
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.lineWidth = ICON_OUTLINE_WIDTH
+  ctx.stroke()
   ctx.fillStyle = 'rgba(180,140,0,0.35)'
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2
@@ -314,10 +345,13 @@ function drawOrange(ctx: CanvasRenderingContext2D, size: number): void {
   const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r)
   grad.addColorStop(0, '#ffd27a')
   grad.addColorStop(1, ORANGE)
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.lineWidth = ICON_OUTLINE_WIDTH
   ctx.beginPath()
   ctx.arc(cx, cy, r, 0, Math.PI * 2)
   ctx.fillStyle = grad
   ctx.fill()
+  ctx.stroke()
   ctx.beginPath()
   ctx.arc(cx, cy - r * 0.85, r * 0.1, 0, Math.PI * 2)
   ctx.fillStyle = '#5b3a12'
@@ -326,6 +360,7 @@ function drawOrange(ctx: CanvasRenderingContext2D, size: number): void {
   ctx.ellipse(cx + r * 0.5, cy - r * 0.9, r * 0.35, r * 0.16, -0.6, 0, Math.PI * 2)
   ctx.fillStyle = LEAF_GREEN
   ctx.fill()
+  ctx.stroke()
   ctx.restore()
 }
 
@@ -336,10 +371,13 @@ function drawPlum(ctx: CanvasRenderingContext2D, size: number): void {
   const grad = ctx.createRadialGradient(cx - size * 0.08, cy - size * 0.1, size * 0.05, cx, cy, size * 0.32)
   grad.addColorStop(0, '#c48fe0')
   grad.addColorStop(1, PLUM)
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.lineWidth = ICON_OUTLINE_WIDTH
   ctx.beginPath()
   ctx.ellipse(cx, cy, size * 0.26, size * 0.32, 0, 0, Math.PI * 2)
   ctx.fillStyle = grad
   ctx.fill()
+  ctx.stroke()
   ctx.beginPath()
   ctx.ellipse(cx - size * 0.08, cy - size * 0.12, size * 0.08, size * 0.12, -0.3, 0, Math.PI * 2)
   ctx.fillStyle = 'rgba(255,255,255,0.4)'
@@ -352,6 +390,8 @@ function drawWild(ctx: CanvasRenderingContext2D, size: number): void {
   const cy = size / 2
   ctx.save()
   ctx.fillStyle = WILD_PURPLE
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.lineWidth = ICON_OUTLINE_WIDTH
   ctx.beginPath()
   const spikes = 10
   for (let i = 0; i < spikes * 2; i++) {
@@ -364,6 +404,7 @@ function drawWild(ctx: CanvasRenderingContext2D, size: number): void {
   }
   ctx.closePath()
   ctx.fill()
+  ctx.stroke()
   const bannerY = cy + size * 0.02
   ctx.fillStyle = '#3a1a52'
   roundRectPath(ctx, cx - size * 0.28, bannerY - size * 0.08, size * 0.56, size * 0.16, size * 0.02)
@@ -381,11 +422,13 @@ function drawScatter(ctx: CanvasRenderingContext2D, size: number): void {
   const cy = size * 0.42
   ctx.save()
   const glow = ctx.createRadialGradient(cx, cy, size * 0.05, cx, cy, size * 0.4)
-  glow.addColorStop(0, 'rgba(243,210,122,0.55)')
-  glow.addColorStop(1, 'rgba(243,210,122,0)')
+  glow.addColorStop(0, 'rgba(212,165,58,0.45)')
+  glow.addColorStop(1, 'rgba(212,165,58,0)')
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, size, size)
   ctx.fillStyle = SCATTER_GOLD
+  ctx.strokeStyle = ICON_OUTLINE
+  ctx.lineWidth = ICON_OUTLINE_WIDTH
   ctx.beginPath()
   const spikes = 5
   const outerR = size * 0.26
@@ -400,6 +443,7 @@ function drawScatter(ctx: CanvasRenderingContext2D, size: number): void {
   }
   ctx.closePath()
   ctx.fill()
+  ctx.stroke()
   ctx.font = `700 ${size * 0.1}px Arial, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'

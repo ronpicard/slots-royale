@@ -17,7 +17,7 @@ interface MenuProps {
   onResetCredits: () => void
 }
 
-const CAMERA_LABEL: Record<CameraView, string> = { auto: 'Auto', reels: 'Reels', cabinet: 'Cabinet', floor: 'Floor' }
+const CAMERA_LABEL: Record<CameraView, string> = { close: 'Close', wide: 'Wide', floor: 'Floor' }
 
 /** How to play, six short lines. */
 const HOW_TO_LINES: string[] = [

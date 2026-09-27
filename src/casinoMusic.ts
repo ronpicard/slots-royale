@@ -1,11 +1,15 @@
 /**
  * Background lounge music, synthesised at runtime with Web Audio: no audio files.
  *
- * A small jazz trio plus vibraphone plays an endless, gently varied set in F major at a lazy
- * swing: a walking upright bass, a Rhodes-like keyboard comping chord stabs, a brushed ride and
- * hi-hat, and a sparse vibraphone melody that wanders through each chord. Two eight-bar chord
- * loops alternate so the tune never repeats exactly, and every rhythm and melody choice is
- * drawn fresh each bar.
+ * A small lounge band plays an endless, gently varied 32-bar chorus in F major at a lazy swing:
+ * a walking upright bass, a kit (kick, brushed snare, ride, and hi-hat), a Rhodes-like keyboard
+ * comping chord stabs, a detuned sawtooth string pad holding each chord, and a vibraphone that
+ * plays real two-bar phrases built from a bank of motifs rather than a random walk. The vibes
+ * hand the lead to the keys for four bars every sixteen, so it passes around the band, and the
+ * whole band fades in over a four-bar intro where only the bass, pad, and hat play. The form is
+ * A, A', B, A' (a IV-based bridge in the third slot) - three eight-bar progressions in rotation -
+ * with a snare fill and crash into the last bar of every eight, and every rhythm and melody
+ * choice drawn fresh each time through.
  *
  * `startCasinoMusic` schedules one bar at a time a short way ahead of the clock (the classic
  * look-ahead scheduler), so it stays sample-accurate no matter how the main thread stutters.
@@ -22,28 +26,25 @@ export interface CasinoMusic {
 // Tuning
 // -------------------------------------------------------------------------------------------
 
-const TEMPO_BPM = 104
+const TEMPO_BPM = 112
 const BEAT_SECONDS = 60 / TEMPO_BPM
 const BAR_SECONDS = BEAT_SECONDS * 4
 /** Where the off-beat eighth falls inside a beat: 0.5 is straight, 0.667 is hard swing. */
-const SWING = 0.63
+const SWING = 0.64
 /** How far ahead of the clock a bar is scheduled, and how often the scheduler wakes. */
 const LOOKAHEAD_SECONDS = 0.6
 const SCHEDULER_INTERVAL_MS = 120
 
 /** The whole band's level on the caller's output scale: a bed, well below the game sounds. */
-const BAND_LEVEL = 0.1
-const BASS_LEVEL = 0.55
-const KEYS_LEVEL = 0.16
+const BAND_LEVEL = 0.11
+const BASS_LEVEL = 0.5
+const KEYS_LEVEL = 0.15
 const VIBES_LEVEL = 0.2
-const RIDE_LEVEL = 0.075
-const HAT_LEVEL = 0.05
-
-/** Chance the vibes sit a whole bar out, so the tune breathes. */
-const VIBES_REST_BAR_CHANCE = 0.28
-/** Chance of a vibes note on a down-beat eighth and on an off-beat eighth. */
-const VIBES_NOTE_CHANCE_ON = 0.42
-const VIBES_NOTE_CHANCE_OFF = 0.26
+const RIDE_LEVEL = 0.07
+const HAT_LEVEL = 0.045
+const KICK_LEVEL = 0.35
+const SNARE_LEVEL = 0.06
+const PAD_LEVEL = 0.05
 
 // -------------------------------------------------------------------------------------------
 // Harmony
@@ -81,11 +82,16 @@ const Dm7: Chord = { root: D, tones: MIN7, scale: DORIAN }
 const C7: Chord = { root: C, tones: DOM7, scale: MIXOLYDIAN }
 const D7: Chord = { root: D, tones: DOM7, scale: MIXOLYDIAN }
 
-/** Two eight-bar loops that alternate: a I–vi–ii–V turnaround, then a IV–iii–VI–ii–V climb. */
+/** Three eight-bar loops that rotate through the chorus: a I-vi-ii-V turnaround, a IV-iii-VI-ii-V
+ * climb, and a IV-based bridge. `chordAt` visits them in the order A, A', B, A'. */
 const PROGRESSIONS: readonly (readonly Chord[])[] = [
   [Fmaj7, Fmaj7, Dm7, Dm7, Gm7, C7, Am7, Dm7],
   [Gm7, C7, Fmaj7, Bbmaj7, Am7, D7, Gm7, C7],
+  [Bbmaj7, Bbmaj7, Am7, D7, Gm7, Gm7, C7, C7],
 ]
+
+/** The chorus order: A, A', B, A', then it repeats every 32 bars. */
+const CHORUS_ORDER: readonly number[] = [0, 1, 2, 1]
 
 /** Comping rhythms as swung-eighth slots (0..7) within the bar, with a velocity for each hit. */
 const COMP_PATTERNS: readonly (readonly { slot: number; velocity: number }[])[] = [
@@ -96,6 +102,71 @@ const COMP_PATTERNS: readonly (readonly { slot: number; velocity: number }[])[] 
   [{ slot: 2, velocity: 0.85 }, { slot: 6, velocity: 0.7 }],
   [{ slot: 3, velocity: 0.9 }],
 ]
+/** The two sparsest comping patterns, used alone on the bridge. */
+const BRIDGE_COMP_PATTERNS: readonly (readonly { slot: number; velocity: number }[])[] = [
+  COMP_PATTERNS[0]!,
+  COMP_PATTERNS[5]!,
+]
+
+// -------------------------------------------------------------------------------------------
+// Phrasing: motif-based melodies for the vibes (and, on loan, the keys)
+// -------------------------------------------------------------------------------------------
+
+interface MotifNote {
+  /** The swung-eighth slot (0..7) within the bar. */
+  slot: number
+  /** Scale-degree offset from the phrase's starting degree. */
+  degree: number
+  /** How many slots the note holds, for reference; playback duration is the instrument's own. */
+  length: number
+}
+type Motif = readonly MotifNote[]
+
+/** A bank of two-bar melodic ideas. Degrees are relative to whatever starting degree a phrase
+ * picks, so the same motif can be played in different registers. */
+const MOTIFS: readonly Motif[] = [
+  [{ slot: 0, degree: 0, length: 2 }, { slot: 2, degree: 2, length: 1 }, { slot: 3, degree: 1, length: 1 }, { slot: 4, degree: 0, length: 3 }],
+  [{ slot: 1, degree: 4, length: 1 }, { slot: 2, degree: 2, length: 1 }, { slot: 3, degree: 0, length: 2 }, { slot: 6, degree: 1, length: 2 }],
+  // Ascending run.
+  [{ slot: 0, degree: 0, length: 1 }, { slot: 1, degree: 1, length: 1 }, { slot: 2, degree: 2, length: 1 }, { slot: 3, degree: 4, length: 3 }],
+  // Descending answer: the ascending run, mirrored.
+  [{ slot: 0, degree: 4, length: 1 }, { slot: 1, degree: 2, length: 1 }, { slot: 2, degree: 1, length: 1 }, { slot: 3, degree: 0, length: 3 }],
+  // Syncopated pair.
+  [{ slot: 1, degree: 2, length: 2 }, { slot: 5, degree: 0, length: 2 }],
+  // A long note.
+  [{ slot: 0, degree: 4, length: 6 }],
+  // Triplet-feel skip.
+  [{ slot: 0, degree: 0, length: 1 }, { slot: 3, degree: 2, length: 1 }, { slot: 6, degree: 4, length: 1 }],
+  // Rest-heavy.
+  [{ slot: 2, degree: 0, length: 1 }, { slot: 6, degree: -1, length: 2 }],
+]
+
+/** Converts an absolute scale-degree step (which may run outside 0..6) to a MIDI note: the
+ * degree's overflow becomes the octave, and the remainder indexes the chord's scale. */
+function scaleDegreeMidi(chord: Chord, degree: number): number {
+  const octave = Math.floor(degree / 7)
+  const index = ((degree % 7) + 7) % 7
+  return chord.root + 12 * octave + chord.scale[index]!
+}
+
+/** Picks a starting scale degree whose first note falls in the melody's register (MIDI 65..86)
+ * and, when a close-enough option exists, within 5 semitones of the previous phrase's last note. */
+function choosePhraseStart(chord: Chord, motif: Motif, lastMidi: number): number {
+  const firstDegree = motif[0]!.degree
+  let best = 24 - firstDegree
+  let bestScore = Infinity
+  for (let candidate = -7; candidate <= 49; candidate++) {
+    const midi = scaleDegreeMidi(chord, candidate)
+    if (midi < 65 || midi > 86) continue
+    const distance = Math.abs(midi - lastMidi)
+    const score = distance <= 5 ? distance : 100 + distance
+    if (score < bestScore) {
+      bestScore = score
+      best = candidate - firstDegree
+    }
+  }
+  return best
+}
 
 function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12)
@@ -213,6 +284,46 @@ export function startCasinoMusic(context: AudioContext, out: AudioNode): CasinoM
     cleanupOnEnd(tine, tineGain)
   }
 
+  // --- String pad: two detuned sawtooths per voice, held under a slow lowpass -------------------
+  let padHeldUntilBar = -1
+
+  function padChord(barStart: number, chord: Chord, next: Chord, barIndex: number): void {
+    if (barIndex < padHeldUntilBar) return
+    const bars = next === chord ? 2 : 1
+    padHeldUntilBar = barIndex + bars
+    const attack = 0.45
+    const release = 0.4
+    const decay = Math.max(BAR_SECONDS * bars - attack - release, 0.05)
+
+    for (const interval of [chord.tones[0]!, chord.tones[2]!, chord.tones[3]!]) {
+      const hz = midiToHz(chord.root + 24 + interval)
+      const lowpass = context.createBiquadFilter()
+      lowpass.type = 'lowpass'
+      lowpass.frequency.value = 900
+      lowpass.Q.value = 0.7
+      const gain = context.createGain()
+      const end = envelope(gain, barStart, PAD_LEVEL * 0.33, attack, decay, 1, release)
+      lowpass.connect(gain)
+      gain.connect(bus)
+      let first = true
+      for (const detune of [-6, 6]) {
+        const osc = context.createOscillator()
+        osc.type = 'sawtooth'
+        osc.frequency.value = hz
+        osc.detune.value = detune
+        osc.connect(lowpass)
+        osc.start(barStart)
+        osc.stop(end)
+        if (first) {
+          cleanupOnEnd(osc, lowpass, gain)
+          first = false
+        } else {
+          cleanupOnEnd(osc)
+        }
+      }
+    }
+  }
+
   // --- Vibraphone: a pure tone with a bright fourth partial and a slow motor tremolo -----------
   function vibesNote(t: number, midi: number, velocity: number): void {
     const hz = midiToHz(midi)
@@ -292,6 +403,47 @@ export function startCasinoMusic(context: AudioContext, out: AudioNode): CasinoM
     noiseHit(t, 8600, 2.5, 0.07, HAT_LEVEL * velocity)
   }
 
+  // --- Kick: a pitch-dropping sine thump plus a noise click for the beater ----------------------
+  function kick(t: number, velocity: number): void {
+    const body = context.createOscillator()
+    body.type = 'sine'
+    body.frequency.setValueAtTime(95, t)
+    body.frequency.exponentialRampToValueAtTime(42, t + 0.09)
+    const gain = context.createGain()
+    const end = envelope(gain, t, KICK_LEVEL * velocity, 0.002, 0.09, 0.25, 0.04)
+    body.connect(gain)
+    gain.connect(bus)
+    body.start(t)
+    body.stop(Math.min(end, t + 0.14))
+    cleanupOnEnd(body, gain)
+    noiseHit(t, 1200, 1.5, 0.004, KICK_LEVEL * velocity * 0.4)
+  }
+
+  // --- Snare: brushed noise over a low sine body, dragged a touch behind the beat ---------------
+  function snare(t: number, velocity: number): void {
+    const late = t + 0.006
+    noiseHit(late, 1800, 0.9, 0.16, SNARE_LEVEL * velocity)
+    const body = context.createOscillator()
+    body.type = 'sine'
+    body.frequency.value = 180
+    const gain = context.createGain()
+    const end = envelope(gain, late, SNARE_LEVEL * velocity * 0.8, 0.002, 0.03, 0.2, 0.03)
+    body.connect(gain)
+    gain.connect(bus)
+    body.start(late)
+    body.stop(Math.min(end, late + 0.06))
+    cleanupOnEnd(body, gain)
+  }
+
+  // --- Fill: a rising snare roll into a crash, replacing the last bar's snare backbeat -----------
+  function fill(barStart: number): void {
+    for (let i = 0; i < 6; i++) {
+      const t = barStart + 2 * BEAT_SECONDS + (i * 2 * BEAT_SECONDS) / 6
+      snare(t, 0.4 + ((0.8 - 0.4) * i) / 5)
+    }
+    noiseHit(barStart + BAR_SECONDS, 6500, 0.6, 1.2, RIDE_LEVEL * 1.4)
+  }
+
   // --- Arrangement -----------------------------------------------------------------------------
 
   let bar = 0
@@ -299,8 +451,9 @@ export function startCasinoMusic(context: AudioContext, out: AudioNode): CasinoM
   let lastVibesMidi = 72
   let timer: ReturnType<typeof setInterval> | null = null
 
+  /** Visits the three progressions in the order A, A', B, A' - a 32-bar chorus. */
   function chordAt(barIndex: number): Chord {
-    const progression = PROGRESSIONS[Math.floor(barIndex / 8) % PROGRESSIONS.length]!
+    const progression = PROGRESSIONS[CHORUS_ORDER[Math.floor(barIndex / 8) % CHORUS_ORDER.length]!]!
     return progression[barIndex % 8]!
   }
 
@@ -331,8 +484,8 @@ export function startCasinoMusic(context: AudioContext, out: AudioNode): CasinoM
     if (Math.random() < 0.3) bassNote(slotTime(barStart, 3), line[1]!, 0.55)
   }
 
-  function comping(barStart: number, chord: Chord): void {
-    const pattern = pick(COMP_PATTERNS)
+  function comping(barStart: number, chord: Chord, isBridge: boolean): void {
+    const pattern = pick(isBridge ? BRIDGE_COMP_PATTERNS : COMP_PATTERNS)
     // Rootless voicing an octave and a bit above the bass: 3rd, 7th, 9th, and sometimes the 5th.
     const voicing = [chord.tones[0]!, chord.tones[2]!, chord.tones[3]!]
     if (Math.random() < 0.5) voicing.push(chord.tones[1]!)
@@ -345,44 +498,94 @@ export function startCasinoMusic(context: AudioContext, out: AudioNode): CasinoM
     }
   }
 
-  function brushes(barStart: number): void {
+  function brushes(barStart: number, includeRide: boolean): void {
     for (let beat = 0; beat < 4; beat++) {
       const t = barStart + beat * BEAT_SECONDS
-      ride(t, beat % 2 === 0 ? 0.9 : 1)
-      // The swung skip note after beats two and four: "ding ding-a ding".
-      if (beat % 2 === 1) ride(t + SWING * BEAT_SECONDS, 0.55)
+      if (includeRide) {
+        ride(t, beat % 2 === 0 ? 0.9 : 1)
+        // The swung skip note after beats two and four: "ding ding-a ding".
+        if (beat % 2 === 1) ride(t + SWING * BEAT_SECONDS, 0.55)
+      }
       if (beat % 2 === 1) hat(t, 1)
     }
   }
 
-  function vibes(barStart: number, chord: Chord): void {
-    if (Math.random() < VIBES_REST_BAR_CHANCE) return
-    // Every scale note over three octaves, so the melody can step or leap without leaving the key.
-    const pool: number[] = []
-    for (let octave = 24; octave <= 48; octave += 12) {
-      for (const degree of chord.scale) pool.push(chord.root + octave + degree)
-    }
-    const chordTones = new Set(chord.tones.map((interval) => (chord.root + interval) % 12))
-    for (let slot = 0; slot < 8; slot++) {
-      const chance = slot % 2 === 0 ? VIBES_NOTE_CHANCE_ON : VIBES_NOTE_CHANCE_OFF
-      if (Math.random() > chance) continue
-      const near = pool.filter((m) => Math.abs(m - lastVibesMidi) <= 5 && m !== lastVibesMidi && m >= 65 && m <= 86)
-      const leap = pool.filter((m) => chordTones.has(m % 12) && m >= 65 && m <= 86)
-      const choices = Math.random() < 0.8 && near.length > 0 ? near : leap
-      if (choices.length === 0) continue
-      const midi = pick(choices)
-      lastVibesMidi = midi
-      vibesNote(slotTime(barStart, slot), midi, 0.7 + Math.random() * 0.3)
+  function drums(barStart: number, barIndex: number): void {
+    kick(barStart, 0.9)
+    kick(barStart + 2 * BEAT_SECONDS, 0.9)
+    if (Math.random() < 0.25) kick(slotTime(barStart, 7), 0.5)
+
+    if (barIndex % 8 === 7) {
+      fill(barStart)
+    } else {
+      snare(barStart + BEAT_SECONDS, 0.7)
+      snare(barStart + 3 * BEAT_SECONDS, 0.7)
     }
   }
+
+  /** A melodic voice that plays a fresh motif every two bars, then on the second bar either
+   * shifts it a scale degree, answers it (same rhythm, degrees reversed), or rests. */
+  function makePhraseVoice(playNote: (t: number, midi: number, velocity: number) => void, velocityScale: number) {
+    let motif: Motif = MOTIFS[0]!
+    let startDegree = 0
+
+    function playMotifBar(barStart: number, chord: Chord, degreeBase: number, reversed: boolean): number {
+      const degrees = motif.map((note) => note.degree)
+      const ordered = reversed ? [...degrees].reverse() : degrees
+      let last = scaleDegreeMidi(chord, degreeBase)
+      motif.forEach((note, i) => {
+        const midi = scaleDegreeMidi(chord, degreeBase + ordered[i]!)
+        const velocity = (i === 0 ? 0.95 : 0.65 + Math.random() * 0.25) * velocityScale
+        playNote(slotTime(barStart, note.slot), midi, velocity)
+        last = midi
+      })
+      return last
+    }
+
+    return {
+      playBar(barStart: number, barIndex: number, chord: Chord, lastMidi: number): number {
+        if (barIndex % 2 === 0) {
+          motif = pick(MOTIFS)
+          startDegree = choosePhraseStart(chord, motif, lastMidi)
+          return playMotifBar(barStart, chord, startDegree, false)
+        }
+        const roll = Math.random()
+        if (roll < 0.5) {
+          const direction = Math.random() < 0.5 ? 1 : -1
+          return playMotifBar(barStart, chord, startDegree + direction, false)
+        }
+        if (roll < 0.8) {
+          return playMotifBar(barStart, chord, startDegree, true)
+        }
+        return lastMidi
+      },
+    }
+  }
+
+  const vibesVoice = makePhraseVoice(vibesNote, 1)
+  const keysVoice = makePhraseVoice(keysNote, 1.3)
 
   function scheduleBar(barStart: number, barIndex: number): void {
     const chord = chordAt(barIndex)
     const next = chordAt(barIndex + 1)
+    const isIntro = barIndex < 4
+    const isBridge = Math.floor(barIndex / 8) % CHORUS_ORDER.length === 2
+
+    // The room fades in: only the bass, pad, and hat play for the first four bars.
     walkingBass(barStart, chord, next)
-    comping(barStart, chord)
-    brushes(barStart)
-    vibes(barStart, chord)
+    padChord(barStart, chord, next, barIndex)
+    brushes(barStart, !isIntro)
+    if (isIntro) return
+
+    comping(barStart, chord, isBridge)
+    drums(barStart, barIndex)
+
+    // Every sixteen bars the vibes rest for four while the keys carry the lead.
+    if (barIndex % 16 >= 12) {
+      lastVibesMidi = keysVoice.playBar(barStart, barIndex, chord, lastVibesMidi)
+    } else {
+      lastVibesMidi = vibesVoice.playBar(barStart, barIndex, chord, lastVibesMidi)
+    }
   }
 
   function tick(): void {

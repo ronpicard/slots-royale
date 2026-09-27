@@ -61,11 +61,11 @@ import { createRng, randomSeed } from '../game/rng.ts'
 
 const BACKGROUND_COLOR = 0x0b0706
 const FOG_DENSITY = 0.0018
-const TONE_MAPPING_EXPOSURE = 1.1
-const ENVIRONMENT_INTENSITY = 0.5
+const TONE_MAPPING_EXPOSURE = 1.2
+const ENVIRONMENT_INTENSITY = 0.6
 const BLOOM_STRENGTH = 0.35
 const BLOOM_RADIUS = 0.5
-const BLOOM_THRESHOLD = 0.9
+const BLOOM_THRESHOLD = 0.95
 const SHADOW_MAP_SIZE = 2048
 
 const CAMERA_NEAR = 0.4
@@ -108,7 +108,7 @@ const MIN_FREE_FRACTION = 0.3
 const FIT_ITERATIONS = 24
 const FIT_MIN_EXTRA = 0
 const FIT_MAX_EXTRA = 500
-const CABINET_FIT_MARGIN = 6
+const WIDE_FIT_MARGIN = 6
 
 // -------------------------------------------------------------------------------------------
 // Small maths helpers
@@ -157,43 +157,46 @@ function countSymbolInReels(window: SymbolId[][], reels: readonly number[], symb
 // Camera rig: three fixed lines of sight, each pulled back just far enough to keep its fit
 // points inside the canvas minus the HUD insets (a bounding-sphere-style fit via binary search
 // on the pull-back distance, as roulette-royale's Engine does for its own views).
+// Close, wide and floor.
 // -------------------------------------------------------------------------------------------
 
-type FitView = 'reels' | 'cabinet' | 'floor'
+type FitView = 'close' | 'wide' | 'floor'
 
 const CABINET_CENTER_Z = (CABINET_MIN_Z + CABINET_MAX_Z) / 2
 
-const REELS_EYE = new THREE.Vector3(0, REEL_WINDOW_Y + 4, CABINET_MAX_Z + 26)
-const REELS_LOOK = new THREE.Vector3(0, REEL_WINDOW_Y, REEL_WINDOW_Z)
-const CABINET_EYE = new THREE.Vector3(6, 52, CABINET_MAX_Z + 62)
-const CABINET_LOOK = new THREE.Vector3(0, 40, 0)
+const CLOSE_EYE = new THREE.Vector3(0, REEL_WINDOW_Y + 5, CABINET_MAX_Z + 34)
+const CLOSE_LOOK = new THREE.Vector3(0, REEL_WINDOW_Y - 1.5, REEL_WINDOW_Z)
+const WIDE_EYE = new THREE.Vector3(6, 52, CABINET_MAX_Z + 62)
+const WIDE_LOOK = new THREE.Vector3(0, 40, 0)
 const FLOOR_EYE = new THREE.Vector3(-50, 56, CABINET_MAX_Z + 40)
 const FLOOR_LOOK = new THREE.Vector3(0, 40, 0)
 
-/** The reels view frames the window plus its gold bezel. */
-const REELS_FIT_MARGIN = 1.2
-const REELS_FIT_POINTS: readonly THREE.Vector3[] = [
-  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Z),
-  new THREE.Vector3(REEL_WINDOW_WIDTH / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Z),
-  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2 - REELS_FIT_MARGIN, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Z),
-  new THREE.Vector3(REEL_WINDOW_WIDTH / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2 + REELS_FIT_MARGIN, REEL_WINDOW_Z),
+/** The close view frames the window plus its bezel, the payline plaques and the top of the deck. */
+const CLOSE_FIT_MARGIN_X = 5
+const CLOSE_FIT_MARGIN_Y_TOP = 4
+const CLOSE_FIT_MARGIN_Y_BOTTOM = 7
+const CLOSE_FIT_POINTS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2 - CLOSE_FIT_MARGIN_X, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2 - CLOSE_FIT_MARGIN_Y_BOTTOM, REEL_WINDOW_Z),
+  new THREE.Vector3(REEL_WINDOW_WIDTH / 2 + CLOSE_FIT_MARGIN_X, REEL_WINDOW_Y - REEL_WINDOW_HEIGHT / 2 - CLOSE_FIT_MARGIN_Y_BOTTOM, REEL_WINDOW_Z),
+  new THREE.Vector3(-REEL_WINDOW_WIDTH / 2 - CLOSE_FIT_MARGIN_X, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2 + CLOSE_FIT_MARGIN_Y_TOP, REEL_WINDOW_Z),
+  new THREE.Vector3(REEL_WINDOW_WIDTH / 2 + CLOSE_FIT_MARGIN_X, REEL_WINDOW_Y + REEL_WINDOW_HEIGHT / 2 + CLOSE_FIT_MARGIN_Y_TOP, REEL_WINDOW_Z),
 ]
-const CABINET_FIT_POINTS: readonly THREE.Vector3[] = [
-  new THREE.Vector3(CABINET_MIN_X - CABINET_FIT_MARGIN, 0, CABINET_CENTER_Z),
-  new THREE.Vector3(CABINET_MAX_X + CABINET_FIT_MARGIN, 0, CABINET_CENTER_Z),
-  new THREE.Vector3(CABINET_MIN_X - CABINET_FIT_MARGIN, TOPPER_Y + TOPPER_HEIGHT / 2 + CABINET_FIT_MARGIN, CABINET_CENTER_Z),
-  new THREE.Vector3(CABINET_MAX_X + CABINET_FIT_MARGIN, TOPPER_Y + TOPPER_HEIGHT / 2 + CABINET_FIT_MARGIN, CABINET_CENTER_Z),
+const WIDE_FIT_POINTS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(CABINET_MIN_X - WIDE_FIT_MARGIN, 0, CABINET_CENTER_Z),
+  new THREE.Vector3(CABINET_MAX_X + WIDE_FIT_MARGIN, 0, CABINET_CENTER_Z),
+  new THREE.Vector3(CABINET_MIN_X - WIDE_FIT_MARGIN, TOPPER_Y + TOPPER_HEIGHT / 2 + WIDE_FIT_MARGIN, CABINET_CENTER_Z),
+  new THREE.Vector3(CABINET_MAX_X + WIDE_FIT_MARGIN, TOPPER_Y + TOPPER_HEIGHT / 2 + WIDE_FIT_MARGIN, CABINET_CENTER_Z),
 ]
 
 function rigFor(view: FitView): { eye: THREE.Vector3; look: THREE.Vector3 } {
-  if (view === 'reels') return { eye: REELS_EYE, look: REELS_LOOK }
-  if (view === 'cabinet') return { eye: CABINET_EYE, look: CABINET_LOOK }
+  if (view === 'close') return { eye: CLOSE_EYE, look: CLOSE_LOOK }
+  if (view === 'wide') return { eye: WIDE_EYE, look: WIDE_LOOK }
   return { eye: FLOOR_EYE, look: FLOOR_LOOK }
 }
 
 function fitPointsFor(view: FitView): readonly THREE.Vector3[] {
-  if (view === 'reels') return REELS_FIT_POINTS
-  return CABINET_FIT_POINTS
+  if (view === 'close') return CLOSE_FIT_POINTS
+  return WIDE_FIT_POINTS
 }
 
 // -------------------------------------------------------------------------------------------
@@ -272,7 +275,7 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
 
   // --- Lighting (point/spot lights decay = 0: the scene is inches, not metres) -------------------
 
-  const reelSpot = new THREE.SpotLight(0xffdca8, 3.2)
+  const reelSpot = new THREE.SpotLight(0xfff1dc, 3.6)
   reelSpot.position.set(0, 105, CABINET_MAX_Z + 30)
   reelSpot.target.position.set(0, REEL_WINDOW_Y, REEL_WINDOW_Z)
   reelSpot.angle = Math.atan2(Math.max(REEL_WINDOW_WIDTH, REEL_WINDOW_HEIGHT) * 1.4, 105 - REEL_WINDOW_Y)
@@ -296,7 +299,7 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
   coolFill.position.set(CABINET_MIN_X - 60, 70, CABINET_MAX_Z - 10)
   scene.add(coolFill)
 
-  const hemiFill = new THREE.HemisphereLight(0x8a7550, 0x140a06, 0.35)
+  const hemiFill = new THREE.HemisphereLight(0x8a7550, 0x140a06, 0.5)
   scene.add(hemiFill)
 
   const rimLight = new THREE.DirectionalLight(0xfff2d6, 0.3)
@@ -309,7 +312,7 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
   const projectedScratch = new THREE.Vector3()
   const eyeScratch = new THREE.Vector3()
 
-  const fitExtra: Record<FitView, number> = { reels: 0, cabinet: 0, floor: 0 }
+  const fitExtra: Record<FitView, number> = { close: 0, wide: 0, floor: 0 }
   let insets: ViewInsets = { left: 0, top: 0, right: 0, bottom: 0 }
   let aspect = 1
 
@@ -382,8 +385,8 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
   }
 
   function refitAllViews(): void {
-    fitExtra.reels = fitView('reels')
-    fitExtra.cabinet = fitView('cabinet')
+    fitExtra.close = fitView('close')
+    fitExtra.wide = fitView('wide')
     fitExtra.floor = fitView('floor')
   }
 
@@ -395,10 +398,9 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
   }
 
   function resolveView(): FitView {
-    if (cameraView !== 'auto') return cameraView
-    // While playing, the camera stays parked close on the reel window: no zooming per spin.
-    if (mode === 'play') return 'reels'
-    return session.phase === 'spinning' ? 'reels' : 'cabinet'
+    if (mode === 'play') return cameraView
+    // The attract mode behind the menu picks its own shot: close on the reels while they spin, the whole cabinet between rounds.
+    return session.phase === 'spinning' ? 'close' : 'wide'
   }
 
   function updateCamera(dt: number): void {
@@ -425,7 +427,7 @@ export function createEngine(canvas: HTMLCanvasElement, events: EngineEvents): E
   let session = createSession(null)
   let quickSpin = false
   let paused = false
-  let cameraView: CameraView = 'auto'
+  let cameraView: CameraView = 'close'
 
   let simTime = 0
   let displayedWin = 0

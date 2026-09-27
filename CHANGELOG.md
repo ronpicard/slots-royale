@@ -2,6 +2,19 @@
 
 All notable changes to Slots Royale are documented in this file, following the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [1.3.0] - 2026-09-27
+
+### Added
+
+- Two named camera views in place of the old auto/reels/cabinet trio: `Close` (the default) frames the reel window a little further back than before, so the gold bezel, the payline plaques and the top of the button deck are in shot, and `Wide` stands back to show the whole cabinet and its marquee. `Floor` is unchanged, and a saved camera choice from an earlier version maps onto its nearest new view.
+
+### Changed
+
+- The reels are classic backlit cream strips with a gold border on every tile and richer symbol colours, the glare on the glass is toned down so the symbols read clearly, and the cabinet carries gold pinstripes, a chrome hairline inside the bezel and a burgundy lacquer panel under the window.
+- The HUD and menu are dressed as a lounge: warm burgundy-tinted glass with gold hairlines top and bottom, serif numerals for credits and bets, a bevelled gold `SPIN` button and a gradient-gold title.
+- Every sound plays through a shared room reverb. Coins are metallic clinks instead of filtered noise, reel stops land with a mechanical tock, the reel whirr flutters as it turns, wins ring a bell tree in the music's key, the jackpot hammers a mechanical bell over its siren and coin cascade, and the lever twangs its return spring.
+- The lounge band gained a drummer (kick, brushed snare and a fill into every eighth bar) and a string pad, the vibraphone now plays phrases that answer each other and hands the lead to the keys every sixteen bars, and the set runs a 32-bar form with a bridge and a four-bar intro.
+
 ## [1.2.0] - 2026-09-26
 
 ### Changed

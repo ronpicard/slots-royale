@@ -113,10 +113,12 @@ const OVERSHOOT = 0.12
 const BASE_REVOLUTIONS_PER_SECOND = 3
 const QUICK_SPEED_MULT = 1.6
 const PULSE_HZ = 1.2
-const DIM_COLOR_SCALE = 0.35
-const DIM_EMISSIVE_INTENSITY = 0.08
-const LIT_EMISSIVE_INTENSITY = 0.25
+const DIM_COLOR_SCALE = 0.45
+const DIM_EMISSIVE_INTENSITY = 0.04
+const LIT_EMISSIVE_INTENSITY = 0.12
 const HIGHLIGHT_COLOR = '#f3d27a'
+/** Cream strips read as paper, not plastic, so the reel material is duller than a bare gloss. */
+const REEL_ROUGHNESS = 0.6
 const HIGHLIGHT_TEXTURE_SIZE = 128
 /** How much smaller the blurred-face cylinder's radius is than the sharp face's. */
 const BLUR_MESH_RADIUS_OFFSET = 0.03
@@ -311,7 +313,7 @@ function buildReel(reel: number, capMaterial: THREE.Material): ReelInstance {
     emissiveMap: texture,
     emissive: 0xffffff,
     emissiveIntensity: LIT_EMISSIVE_INTENSITY,
-    roughness: 0.45,
+    roughness: REEL_ROUGHNESS,
     transparent: true,
     // The blurred mesh sits just behind (smaller radius) and writes depth for both.
     depthWrite: false,
@@ -321,7 +323,7 @@ function buildReel(reel: number, capMaterial: THREE.Material): ReelInstance {
     emissiveMap: blurTexture,
     emissive: 0xffffff,
     emissiveIntensity: LIT_EMISSIVE_INTENSITY,
-    roughness: 0.45,
+    roughness: REEL_ROUGHNESS,
   })
   const mesh = new THREE.Mesh(geometry, material)
   mesh.castShadow = true

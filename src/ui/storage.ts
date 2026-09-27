@@ -13,7 +13,10 @@ const MUTED_KEY = 'slots-royale.muted'
 const QUICK_SPIN_KEY = 'slots-royale.quickSpin'
 const CAMERA_KEY = 'slots-royale.camera'
 
-const CAMERA_VIEWS: readonly CameraView[] = ['auto', 'reels', 'cabinet', 'floor']
+const CAMERA_VIEWS: readonly CameraView[] = ['close', 'wide', 'floor']
+
+/** Views from earlier releases map onto their nearest current view, so an old saved choice still loads. */
+const LEGACY_CAMERA_VIEWS: Record<string, CameraView> = { auto: 'close', reels: 'close', cabinet: 'wide' }
 
 /** Probes localStorage once and hands back either the real Storage or null. */
 export function safeLocalStorage(): Storage | null {
@@ -93,12 +96,13 @@ export function saveQuickSpin(storage: Storage | null, quickSpin: boolean): void
 }
 
 export function loadCamera(storage: Storage | null): CameraView {
-  if (!storage) return 'auto'
+  if (!storage) return 'close'
   try {
-    const raw = storage.getItem(CAMERA_KEY)
-    return (CAMERA_VIEWS as readonly string[]).includes(raw ?? '') ? (raw as CameraView) : 'auto'
+    const raw = storage.getItem(CAMERA_KEY) ?? ''
+    if ((CAMERA_VIEWS as readonly string[]).includes(raw)) return raw as CameraView
+    return LEGACY_CAMERA_VIEWS[raw] ?? 'close'
   } catch {
-    return 'auto'
+    return 'close'
   }
 }
 

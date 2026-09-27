@@ -62,7 +62,7 @@ const SUIT_COLORS = ['#111113', '#2b2b2e', '#101a33', '#4a0e18']
 const DRESS_COLORS = ['#8a0303', '#0d5c37', '#cca63a', '#0c0c0e', '#1a2f8a']
 const SKIN_TONES = ['#f2c9a0', '#e0ac7d', '#c98a5c', '#a9714a', '#7a4a28', '#4a2c1a']
 const HAIR_COLORS = ['#141010', '#3b2412', '#6b4226', '#0a0a0a', '#a98a3a', '#8a8a8a']
-const SHIRT_WHITE = '#f2ede0'
+const SHIRT_WHITE = '#d9d2c2'
 const CROUPIER_WAISTCOAT = '#101012'
 
 // -------------------------------------------------------------------------------------------
@@ -225,7 +225,8 @@ const FACE_TOWARD_X = -10
 const FACE_TOWARD_Z = 0
 
 const FIGURE_SPECS: FigureSpec[] = [
-  { x: -28, z: 4, isCroupier: true, facing: 0 },
+  // The attendant stands off the machine's shoulder, clear of the close camera's frame.
+  { x: -36, z: -2, isCroupier: true, facing: 0 },
   { x: -60, z: 30 },
   { x: 62, z: 32 },
   { x: -46, z: 10 },

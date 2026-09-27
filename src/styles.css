@@ -1,19 +1,19 @@
 /*
- * Roulette Royale UI shell styles. A high-roller casino palette (deep felt green, black lacquer,
- * burgundy accents, gold trim, cream type) laid over the always-visible 3D table, glassy panels
- * with a gold hairline, serif display type for titles and a clean sans for UI, tabular figures
- * for numbers, and compact layouts for phones in both orientations. Motion respects
- * prefers-reduced-motion.
+ * Slots Royale UI shell styles. A high-roller lounge palette (warm black glass, a burgundy tint,
+ * gold hairlines top and bottom, cream type) laid over the always-visible 3D table, glassy panels,
+ * serif display numerals, a gold SPIN button with a bevel, and gradient gold titles, with a clean
+ * sans for body UI, tabular figures for numbers, and compact layouts for phones in both
+ * orientations. Motion respects prefers-reduced-motion.
  */
 
 :root {
-  --color-bg: #07140e;
-  --color-felt: #0c3d24;
-  --color-burgundy: #5e1220;
-  --color-burgundy-bright: #8a1c30;
-  --color-gold: #d4af37;
-  --color-gold-bright: #f3d27a;
-  --color-cream: #f5ecd9;
+  --color-bg: #0b0608;
+  --color-felt: #2b0a12;
+  --color-burgundy: #4a0f1c;
+  --color-burgundy-bright: #7a1a2e;
+  --color-gold: #cfae4a;
+  --color-gold-bright: #f4d98a;
+  --color-cream: #f7efdd;
   --color-red: #b3121b;
   --color-black-chip: #141414;
   --color-green: #0b7a3b;
@@ -21,10 +21,10 @@
   --color-accent: var(--color-gold);
   --color-text: var(--color-cream);
   --color-text-dim: rgba(245, 236, 217, 0.68);
-  --color-panel: rgba(7, 15, 11, 0.88);
-  --color-panel-strong: rgba(5, 11, 8, 0.96);
-  --color-border: rgba(212, 175, 55, 0.35);
-  --color-border-strong: rgba(212, 175, 55, 0.75);
+  --color-panel: rgba(18, 8, 11, 0.86);
+  --color-panel-strong: rgba(12, 5, 8, 0.96);
+  --color-border: rgba(207, 174, 74, 0.38);
+  --color-border-strong: rgba(244, 217, 138, 0.8);
 
   --radius-sm: 8px;
   --radius-md: 16px;
@@ -36,6 +36,9 @@
   --shadow-panel: 0 20px 60px rgba(0, 0, 0, 0.65);
   --glow-gold: 0 0 10px rgba(212, 175, 55, 0.5), 0 0 26px rgba(212, 175, 55, 0.25);
   --glow-gold-strong: 0 0 14px rgba(243, 210, 122, 0.75), 0 0 34px rgba(212, 175, 55, 0.45);
+  --gold-gradient: linear-gradient(180deg, #f8e3a3 0%, #d9b54f 48%, #b8902f 52%, #e9c96a 100%);
+  --text-gold-gradient: linear-gradient(180deg, #fbe9b4, #d4af37 60%, #b8902f);
+  --shadow-inset-bevel: inset 0 1px 0 rgba(255, 244, 210, 0.7), inset 0 -2px 0 rgba(90, 60, 10, 0.35);
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -121,7 +124,7 @@ button {
 
 .felt-panel {
   position: relative;
-  background: var(--color-panel);
+  background: linear-gradient(180deg, rgba(40, 12, 20, 0.55), rgba(10, 4, 7, 0.2)), var(--color-panel);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--color-border);
@@ -135,6 +138,15 @@ button {
   inset: 0 0 auto 0;
   height: 1px;
   background: linear-gradient(to right, transparent, rgba(212, 175, 55, 0.55), transparent);
+  pointer-events: none;
+}
+
+.felt-panel::before {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(212, 175, 55, 0.35), transparent);
   pointer-events: none;
 }
 
@@ -161,13 +173,14 @@ button {
 
 .primary-button {
   padding: 14px 28px;
-  background: linear-gradient(180deg, var(--color-gold-bright), var(--color-gold));
-  color: #241708;
+  background: var(--gold-gradient);
+  color: #2a1606;
   font-weight: 700;
   font-size: 1.02rem;
   letter-spacing: 0.03em;
   border-radius: var(--radius-md);
-  box-shadow: var(--glow-gold);
+  box-shadow: var(--glow-gold), var(--shadow-inset-bevel);
+  border: 1px solid #f4d98a;
 }
 
 .primary-button:hover:not(:disabled) {
@@ -186,8 +199,8 @@ button {
 
 .secondary-button {
   padding: 10px 18px;
-  background: rgba(245, 236, 217, 0.05);
-  border-color: var(--color-border);
+  background: rgba(247, 239, 221, 0.04);
+  border-color: rgba(207, 174, 74, 0.45);
   color: var(--color-text);
   border-radius: var(--radius-md);
   font-weight: 600;
@@ -197,6 +210,7 @@ button {
 .secondary-button:hover:not(:disabled) {
   border-color: var(--color-gold-bright);
   background: rgba(212, 175, 55, 0.1);
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.25), 0 0 26px rgba(212, 175, 55, 0.125);
 }
 
 .secondary-button:active:not(:disabled) {
@@ -219,7 +233,7 @@ button {
   flex: none;
   padding: 4px 6px;
   background: rgba(245, 236, 217, 0.05);
-  border-color: var(--color-border);
+  border-color: rgba(207, 174, 74, 0.45);
   border-radius: var(--radius-sm);
   font-size: 1.15rem;
 }
@@ -236,6 +250,7 @@ button {
 .icon-button[aria-pressed='true'] {
   border-color: var(--color-gold-bright);
   color: var(--color-gold-bright);
+  background: rgba(207, 174, 74, 0.18);
   box-shadow: var(--glow-gold);
 }
 
@@ -338,6 +353,7 @@ button {
   flex-direction: column;
   gap: 18px;
   animation: panel-in 0.4s var(--ease-standard);
+  box-shadow: var(--shadow-panel), inset 0 0 0 1px rgba(207, 174, 74, 0.12);
 }
 
 .menu-top-row {
@@ -355,6 +371,7 @@ button {
   background-position: 0 2px, 0 calc(100% - 2px);
   background-position-y: 3px, calc(100% - 3px);
   animation: bulb-chase 1.6s linear infinite;
+  box-shadow: 0 0 6px rgba(244, 217, 138, 0.8);
 }
 
 .bulb-border::before,
@@ -367,6 +384,7 @@ button {
   background-image: radial-gradient(circle, var(--color-gold-bright) 1.6px, transparent 1.8px);
   background-repeat: repeat-x;
   background-size: 16px 6px;
+  box-shadow: 0 0 6px rgba(244, 217, 138, 0.8);
 }
 
 .bulb-border::before {
@@ -391,8 +409,10 @@ button {
   font-size: clamp(1.7rem, 7vw, 2.4rem);
   letter-spacing: 0.03em;
   text-align: center;
-  color: var(--color-gold-bright);
-  text-shadow: var(--glow-gold);
+  background: var(--text-gold-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   padding: 6px 4px;
 }
 
@@ -406,6 +426,10 @@ button {
 
 .play-button {
   width: 100%;
+  background: var(--gold-gradient);
+  color: #2a1606;
+  box-shadow: var(--glow-gold), var(--shadow-inset-bevel);
+  border: 1px solid #f4d98a;
 }
 
 .panel-section {
@@ -517,7 +541,7 @@ button {
   margin-top: auto;
   padding-top: 12px;
   font-size: 0.72rem;
-  color: var(--color-text-dim);
+  color: rgba(247, 239, 221, 0.45);
   text-align: center;
 }
 
@@ -626,8 +650,9 @@ button {
   gap: 0;
   padding: 2px 10px;
   border-radius: var(--radius-sm);
-  background: rgba(245, 236, 217, 0.05);
-  border: 1px solid rgba(212, 175, 55, 0.2);
+  background: rgba(247, 239, 221, 0.04);
+  border: 1px solid rgba(207, 174, 74, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   min-width: 0;
 }
 
@@ -635,12 +660,14 @@ button {
   font-size: 0.6rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--color-text-dim);
+  color: rgba(247, 239, 221, 0.62);
 }
 
 .hud-pill-value {
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1.05rem;
+  font-size: 1.16rem;
+  letter-spacing: 0.01em;
   color: var(--color-gold-bright);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -873,14 +900,14 @@ button {
   height: 62px;
   width: 62px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, var(--color-gold-bright), var(--color-gold) 70%);
-  color: #241708;
+  background: radial-gradient(circle at 35% 28%, rgba(255, 250, 230, 0.55), rgba(255, 250, 230, 0) 45%), var(--gold-gradient);
+  color: #2a1606;
   font-weight: 800;
   font-size: 0.78rem;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   border: 2px solid var(--color-gold-bright);
-  box-shadow: var(--glow-gold-strong);
+  box-shadow: var(--glow-gold), var(--shadow-inset-bevel);
   cursor: pointer;
   padding: 4px;
   transition: transform 0.15s var(--ease-standard), box-shadow 0.15s var(--ease-standard), width 0.2s var(--ease-standard);
@@ -1093,15 +1120,17 @@ button {
 }
 
 .bet-stepper-coin {
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1.05rem;
+  font-size: 1.16rem;
+  letter-spacing: 0.01em;
   color: var(--color-gold-bright);
 }
 
 .bet-stepper-caption {
   font-size: 0.62rem;
   letter-spacing: 0.04em;
-  color: var(--color-text-dim);
+  color: rgba(247, 239, 221, 0.62);
   white-space: nowrap;
 }
 
@@ -1146,12 +1175,13 @@ button {
 /* History discs: win-coded instead of roulette's number-coded discs ---------- */
 
 .hud-history-disc.hud-nowin {
-  background: rgba(245, 236, 217, 0.18);
+  background: rgba(247, 239, 221, 0.08);
+  border-color: rgba(247, 239, 221, 0.2);
 }
 
 .hud-history-disc.hud-win {
-  background: var(--color-gold);
-  border-color: var(--color-gold-bright);
+  background: var(--gold-gradient);
+  border-color: #f4d98a;
 }
 
 .hud-history-disc.hud-free {

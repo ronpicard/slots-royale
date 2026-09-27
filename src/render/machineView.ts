@@ -103,7 +103,6 @@ const MASK_BLACK = '#050506'
 const GOLD = '#d4af37'
 const GOLD_BRIGHT = '#f3d27a'
 const BURGUNDY_DEEP = '#4a1420'
-const BURGUNDY = '#2c0b12'
 const BRASS = '#c9a54a'
 const CHROME = '#d8dade'
 const RED_BUTTON = '#c81f2f'
@@ -163,6 +162,16 @@ const DECK_WIDTH = CABINET_WIDTH - 4
 const DECK_PANEL_HEIGHT = 14
 const LEVER_PULL_ANGLE = 0.85
 
+const BURGUNDY_LACQUER = '#3a0d17'
+const PINSTRIPE_WIDTH = 0.18
+const PINSTRIPE_PROUD = 0.06
+/** How far each pinstripe sits in from the outer edge of the front face. */
+const PINSTRIPE_INSET = 3.2
+/** The burgundy panel sits on the lower cabinet face, between the coin tray and the kick, where the deck does not hide it. */
+const BELLY_PANEL_CENTER_Y = 11
+const BELLY_PANEL_HEIGHT = 13
+const BELLY_PANEL_PROUD = 0.12
+
 // -------------------------------------------------------------------------------------------
 // Canvas texture painters
 // -------------------------------------------------------------------------------------------
@@ -171,7 +180,7 @@ function paintTopperSign(ctx: CanvasRenderingContext2D, width: number, height: n
   ctx.clearRect(0, 0, width, height)
   const bg = ctx.createLinearGradient(0, 0, 0, height)
   bg.addColorStop(0, BURGUNDY_DEEP)
-  bg.addColorStop(1, BURGUNDY)
+  bg.addColorStop(1, '#5a1424')
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, width, height)
   ctx.strokeStyle = GOLD
@@ -237,10 +246,10 @@ function paintGlassGlare(ctx: CanvasRenderingContext2D, size: number): void {
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, size, size)
   }
-  paintBand(0, size * 0.11, 0.28)
-  paintBand(size * 0.2, size * 0.06, 0.12)
+  paintBand(0, size * 0.11, 0.16)
+  paintBand(size * 0.2, size * 0.06, 0.07)
   const radial = ctx.createRadialGradient(size * 0.15, size * 0.15, 0, size * 0.15, size * 0.15, size * 0.45)
-  radial.addColorStop(0, 'rgba(255, 255, 255, 0.18)')
+  radial.addColorStop(0, 'rgba(255, 255, 255, 0.08)')
   radial.addColorStop(1, 'rgba(255, 255, 255, 0)')
   ctx.fillStyle = radial
   ctx.fillRect(0, 0, size, size)
@@ -252,13 +261,13 @@ function paintGlassVignette(ctx: CanvasRenderingContext2D, size: number): void {
   const maxRadius = size * Math.SQRT1_2
   const radial = ctx.createRadialGradient(center, center, maxRadius * 0.55, center, center, maxRadius)
   radial.addColorStop(0, 'rgba(0, 0, 0, 0)')
-  radial.addColorStop(1, 'rgba(0, 0, 0, 0.55)')
+  radial.addColorStop(1, 'rgba(0, 0, 0, 0.4)')
   ctx.fillStyle = radial
   ctx.fillRect(0, 0, size, size)
   const edgeDepth = size * 0.08
   function paintEdge(gx0: number, gy0: number, gx1: number, gy1: number, rx: number, ry: number, rw: number, rh: number): void {
     const gradient = ctx.createLinearGradient(gx0, gy0, gx1, gy1)
-    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.5)')
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.35)')
     gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
     ctx.fillStyle = gradient
     ctx.fillRect(rx, ry, rw, rh)
@@ -317,6 +326,9 @@ export function createMachineView(): MachineView {
   const chromeMaterial = own(new THREE.MeshStandardMaterial({ color: CHROME, metalness: 1, roughness: 0.15 }))
   const brassMaterial = own(new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.9, roughness: 0.3 }))
   const pebbleBump = own(makePebbleBump())
+  const burgundyLacquerMaterial = own(
+    new THREE.MeshPhysicalMaterial({ color: BURGUNDY_LACQUER, roughness: 0.25, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.15 }),
+  )
 
   function addBox(
     width: number, height: number, depth: number, x: number, y: number, z: number,
@@ -347,12 +359,43 @@ export function createMachineView(): MachineView {
   addBox(2, CABINET_HEIGHT, 0.3, CABINET_MIN_X + 1, CABINET_HEIGHT / 2, CABINET_MAX_Z + 0.05, brushedMetalMaterial)
   addBox(2, CABINET_HEIGHT, 0.3, CABINET_MAX_X - 1, CABINET_HEIGHT / 2, CABINET_MAX_Z + 0.05, brushedMetalMaterial)
 
+  // --- Gold pinstripes on the front face: two verticals near the outer edges, one horizontal
+  // along the top, so the burgundy lacquer reads as a high-roller cabinet, not a black box. ---
+  const pinstripeZ = CABINET_MAX_Z + PINSTRIPE_PROUD / 2
+  addBox(PINSTRIPE_WIDTH, CABINET_HEIGHT - 6, PINSTRIPE_PROUD, CABINET_MAX_X - PINSTRIPE_INSET, CABINET_HEIGHT / 2, pinstripeZ, goldMaterial, { shadow: false })
+  addBox(PINSTRIPE_WIDTH, CABINET_HEIGHT - 6, PINSTRIPE_PROUD, -(CABINET_MAX_X - PINSTRIPE_INSET), CABINET_HEIGHT / 2, pinstripeZ, goldMaterial, { shadow: false })
+  addBox(CABINET_WIDTH - PINSTRIPE_INSET * 2, PINSTRIPE_WIDTH, PINSTRIPE_PROUD, 0, CABINET_HEIGHT - 3, pinstripeZ, goldMaterial, { shadow: false })
+
   // --- Gold bezel around the window, proud of the front face -------------------------------
   const bezelZ = CABINET_MAX_Z + BEZEL_DEPTH / 2
   addBox(REEL_WINDOW_WIDTH + BEZEL_WIDTH * 2, BEZEL_WIDTH, BEZEL_DEPTH, 0, WIN_TOP + BEZEL_WIDTH / 2, bezelZ, goldMaterial)
   addBox(REEL_WINDOW_WIDTH + BEZEL_WIDTH * 2, BEZEL_WIDTH, BEZEL_DEPTH, 0, WIN_BOTTOM - BEZEL_WIDTH / 2, bezelZ, goldMaterial)
   addBox(BEZEL_WIDTH, REEL_WINDOW_HEIGHT + BEZEL_WIDTH * 2, BEZEL_DEPTH, WIN_LEFT - BEZEL_WIDTH / 2, REEL_WINDOW_Y, bezelZ, goldMaterial)
   addBox(BEZEL_WIDTH, REEL_WINDOW_HEIGHT + BEZEL_WIDTH * 2, BEZEL_DEPTH, WIN_RIGHT + BEZEL_WIDTH / 2, REEL_WINDOW_Y, bezelZ, goldMaterial)
+
+  // --- Inner chrome hairline just inside the gold bezel's inner edge ----------------------
+  const bezelHairlineZ = CABINET_MAX_Z + 0.3
+  addBox(REEL_WINDOW_WIDTH + BEZEL_WIDTH * 2 - 0.22, 0.22, 0.3, 0, WIN_TOP - 0.11, bezelHairlineZ, chromeMaterial, { shadow: false })
+  addBox(REEL_WINDOW_WIDTH + BEZEL_WIDTH * 2 - 0.22, 0.22, 0.3, 0, WIN_BOTTOM + 0.11, bezelHairlineZ, chromeMaterial, { shadow: false })
+  addBox(0.22, REEL_WINDOW_HEIGHT + BEZEL_WIDTH * 2 - 0.22, 0.3, WIN_LEFT + 0.11, REEL_WINDOW_Y, bezelHairlineZ, chromeMaterial, { shadow: false })
+  addBox(0.22, REEL_WINDOW_HEIGHT + BEZEL_WIDTH * 2 - 0.22, 0.3, WIN_RIGHT - 0.11, REEL_WINDOW_Y, bezelHairlineZ, chromeMaterial, { shadow: false })
+
+  // --- Burgundy belly panel on the lower face, below the coin tray, framed with a gold hairline --
+  const bellyPanelCenterY = BELLY_PANEL_CENTER_Y
+  const bellyPanelZ = CABINET_MAX_Z + BELLY_PANEL_PROUD / 2
+  addBox(REEL_WINDOW_WIDTH + BEZEL_WIDTH * 2, BELLY_PANEL_HEIGHT, BELLY_PANEL_PROUD, 0, bellyPanelCenterY, bellyPanelZ, burgundyLacquerMaterial)
+  {
+    const frameZ = CABINET_MAX_Z + BELLY_PANEL_PROUD + PINSTRIPE_PROUD / 2
+    const frameWidth = REEL_WINDOW_WIDTH + BEZEL_WIDTH * 2
+    const frameTop = bellyPanelCenterY + BELLY_PANEL_HEIGHT / 2
+    const frameBottom = bellyPanelCenterY - BELLY_PANEL_HEIGHT / 2
+    const frameLeft = -frameWidth / 2
+    const frameRight = frameWidth / 2
+    addBox(frameWidth, PINSTRIPE_WIDTH, PINSTRIPE_PROUD, 0, frameTop, frameZ, goldMaterial, { shadow: false })
+    addBox(frameWidth, PINSTRIPE_WIDTH, PINSTRIPE_PROUD, 0, frameBottom, frameZ, goldMaterial, { shadow: false })
+    addBox(PINSTRIPE_WIDTH, BELLY_PANEL_HEIGHT, PINSTRIPE_PROUD, frameLeft, bellyPanelCenterY, frameZ, goldMaterial, { shadow: false })
+    addBox(PINSTRIPE_WIDTH, BELLY_PANEL_HEIGHT, PINSTRIPE_PROUD, frameRight, bellyPanelCenterY, frameZ, goldMaterial, { shadow: false })
+  }
 
   // --- Edge vignette, just behind the glass (in front of the reels): makes the reels read as
   // recessed behind the pane rather than sitting flush with it. ----------------------------
@@ -389,7 +432,7 @@ export function createMachineView(): MachineView {
     })()))
     const material = own(
       new THREE.MeshBasicMaterial({
-        map: texture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.16,
+        map: texture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.11,
       }),
     )
     const mesh = new THREE.Mesh(geometry, material)
@@ -575,7 +618,7 @@ export function createMachineView(): MachineView {
   deckGroup.rotation.x = DECK_ANGLE
   group.add(deckGroup)
 
-  const deckPanelMaterial = own(new THREE.MeshStandardMaterial({ color: '#17151a', roughness: 0.55, metalness: 0.25, bumpMap: pebbleBump, bumpScale: 0.03 }))
+  const deckPanelMaterial = own(new THREE.MeshStandardMaterial({ color: '#1c1116', roughness: 0.55, metalness: 0.25, bumpMap: pebbleBump, bumpScale: 0.03 }))
   {
     const geometry = ownGeometry(new THREE.BoxGeometry(DECK_WIDTH, DECK_PANEL_HEIGHT, 1.4))
     const mesh = new THREE.Mesh(geometry, deckPanelMaterial)

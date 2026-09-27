@@ -26,7 +26,7 @@ interface HudProps {
   onOpenMenu: () => void
 }
 
-const CAMERA_LABEL: Record<CameraView, string> = { auto: 'Auto', reels: 'Reels', cabinet: 'Cabinet', floor: 'Floor' }
+const CAMERA_LABEL: Record<CameraView, string> = { close: 'Close', wide: 'Wide', floor: 'Floor' }
 
 /** The AUTO menu's spin-count choices. */
 const AUTOPLAY_COUNTS = [10, 25, 50] as const
